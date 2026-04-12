@@ -81,22 +81,29 @@ frontend ──► backend ──► llm-service  (Подход 1)
 
 ## Датасет
 
-`dataset.jsonl` — 3000 примеров для fine-tune моделей.
+`dataset.jsonl` — 3000 синтетических примеров для fine-tune моделей.
 
-**Формат:** только обращение + ответ (без системного промпта и категорий):
+**Формат:**
 ```json
 {"messages": [
   {"role": "user", "content": "жалоба пациента"},
   {"role": "assistant", "content": "{...json...}"}
-]}
+], "template_id": "imp_42"}
 ```
 
-Системный промпт и список категорий **добавляются динамически** при обучении и инференсе — это позволяет менять категории без регенерации датасета.
+- Системный промпт и список категорий **добавляются динамически** при обучении и инференсе
+- `template_id` — идентификатор шаблона, используется для split без data leakage
 
-**Генерация:** `python3 generate_dataset.py`
-- 90% важных (2700) / 10% неважных (300)
-- Вариации: 15 преамбул × 15 суффиксов × опечатки
-- `generate_dataset.py` — полная документация внутри файла
+**Ключевые параметры:**
+- 199 шаблонов (164 важных + 35 неважных), ~15 вариаций на шаблон
+- Баланс: 75% важных (2250) / 25% неважных (750)
+- Длина текстов: 4-414 символов (avg=101)
+- Аугментация: синонимы, опечатки (28 паттернов), разговорные вставки, стилевые обёртки
+- Train/val/test split по template_id: 70/15/15 (нет data leakage)
+
+**Генерация:** `python3 generate_dataset.py` (seed=42, воспроизводимо)
+
+**Подробный отчёт:** см. `report.md` — полное описание датасета, аугментации и split для диплома
 
 ---
 
@@ -163,10 +170,53 @@ Fine-tuned веса сохраняются в `trained_models/` (Docker volume `
 |------|-----------|
 | Backend | Python 3.12 + nats-py |
 | LLM Inference | Ollama + Qwen2.5-3B (GGUF Q4_K_M) |
-| NLP классификатор | rubert-tiny2 (HuggingFace Transformers) |
-| NLP seq2seq | rut5-base-multitask (HuggingFace) |
-| NLP similarity | paraphrase-multilingual-MiniLM-L12-v2 |
+| NLP классификатор | cointegrated/rubert-tiny2 (HuggingFace Transformers) |
+| NLP seq2seq | cointegrated/rut5-base-multitask (HuggingFace) |
+| NLP similarity | paraphrase-multilingual-MiniLM-L12-v2 (sentence-transformers) |
 | Шина/KV | NATS JetStream |
 | API (nlp-service) | FastAPI + uvicorn |
 | Контейнеризация | Docker Compose |
-| Frontend | Next.js (порт 8082) |
+| Frontend | Next.js 16 + Bun + NextAuth + Zitadel OAuth |
+| UI компоненты | shadcn/ui + Tailwind v4 + Radix UI |
+
+---
+
+## Важные файлы документации
+
+| Файл | Назначение |
+|------|-----------|
+| `report.md` | **Отчёт для диплома** — описание датасета, аугментации, split, статистика. Дополняется по мере работы. Писать новые разделы сюда. |
+| `frontend/plan.md` | Полный анализ проекта — модели, баги, рекомендации, терминология. Справочник. |
+| `frontend/CONTEXT.md` | Краткий контекст для нового чата — структура, подходы, что сделано/нужно сделать. |
+| `frontend/questions.md` | Вопросы руководителю диплома по методологии. |
+
+---
+
+## Контекст диплома
+
+Дипломная работа. Суть — **сравнение двух подходов** обработки обращений пациентов: LLM (Qwen zero-shot) vs NLP-pipeline (3 fine-tuned модели).
+
+**Реальные категории с сервера** (отличаются от текущих в `categories.py`):
+1. Организация работы регистратуры КДО (3 подкатегории)
+2. Профилактика рисков, связанных с переливанием донорской крови (1 подкатегория)
+3. Организация ухода за пациентами (5 подкатегорий)
+
+Категории динамические — приходят с сервера, `categories.py` будет обновлён отдельно.
+
+**Что сделано:**
+- Полная архитектура с двумя подходами
+- Датасет 3000 примеров (199 шаблонов, аугментация, template_id)
+- Все три NLP-модели + FastAPI + NATS
+- Docker Compose оркестрация
+- Frontend с NextAuth/Zitadel
+- Split по шаблонам (без data leakage) в training скриптах
+- test_llm.py для бенчмарка Qwen
+
+**Что нужно сделать:**
+1. Обновить categories.py под реальные категории с сервера
+2. Запустить baselines (base модели без fine-tune)
+3. Обучить rubert-tiny2 и rut5
+4. Единый benchmark runner (NLP vs LLM)
+5. ROUGE/BERTScore метрики в train_seq2seq.py
+6. Замерить latency и memory для обоих подходов
+7. Сравнительная таблица результатов

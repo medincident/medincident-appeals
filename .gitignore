@@ -9,6 +9,7 @@ wheels/
 
 # NLP trained model weights
 nlp-service/trained_models/
+models_cache/
 
 # Node.js
 node_modules/

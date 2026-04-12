@@ -14,7 +14,10 @@ train_seq2seq.py — fine-tune rut5-base-multitask для формализаци
     target_theses   = "- тезис1\n- тезис2\n..." (из theses[])
 
   Только важные примеры (is_important=true) — неважным нет что формализовать.
-  Итого ~2700 × 2 = ~5400 пар.
+  Итого ~2250 × 2 = ~4500 пар.
+
+Split по шаблонам (template_id), не по примерам — предотвращает data leakage.
+  70% шаблонов → train, 15% → val, 15% → test (hold-out).
 
 Гиперпараметры:
   --epochs     5
@@ -47,12 +50,12 @@ BASE_MODEL = "cointegrated/rut5-base-multitask"
 
 # ── загрузка датасета ─────────────────────────────────────────────────────────
 
-def load_pairs(path: Path) -> tuple[list[str], list[str]]:
+def load_pairs(path: Path) -> tuple[list[str], list[str], list[str]]:
     """
-    Возвращает (inputs, targets) — чередуем формализацию и тезисы,
-    чтобы модель обучалась на обоих задачах в одном прогоне.
+    Возвращает (inputs, targets, template_ids) — чередуем формализацию и тезисы.
+    template_id нужен для split по шаблонам (предотвращение data leakage).
     """
-    inputs, targets = [], []
+    inputs, targets, template_ids = [], [], []
     with open(path, encoding="utf-8") as f:
         for line in f:
             ex = json.loads(line.strip())
@@ -62,6 +65,7 @@ def load_pairs(path: Path) -> tuple[list[str], list[str]]:
             if not answer["is_important"]:
                 continue
 
+            tid = ex.get("template_id", f"unknown_{len(inputs)}")
             formalized = answer.get("formalized_text", "").strip()
             theses = answer.get("theses") or []
             theses_str = "\n".join(f"- {t}" for t in theses)
@@ -69,13 +73,52 @@ def load_pairs(path: Path) -> tuple[list[str], list[str]]:
             if formalized:
                 inputs.append(f"формализуй: {complaint}")
                 targets.append(formalized)
+                template_ids.append(tid)
 
             if theses_str:
                 inputs.append(f"тезисы: {complaint}")
                 targets.append(theses_str)
+                template_ids.append(tid)
 
-    logger.info("Loaded %d input-target pairs", len(inputs))
-    return inputs, targets
+    logger.info("Loaded %d input-target pairs (templates=%d)",
+                len(inputs), len(set(template_ids)))
+    return inputs, targets, template_ids
+
+
+def split_by_templates(
+    template_ids: list[str],
+    val_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+) -> tuple[list[int], list[int], list[int]]:
+    """Split по шаблонам: все пары одного шаблона попадают в один сплит."""
+    import numpy as np
+
+    tid_to_indices: dict[str, list[int]] = {}
+    for i, tid in enumerate(template_ids):
+        tid_to_indices.setdefault(tid, []).append(i)
+
+    unique_tids = list(tid_to_indices.keys())
+    rng = np.random.default_rng(seed)
+    rng.shuffle(unique_tids)
+
+    n = len(unique_tids)
+    n_val = int(n * val_ratio)
+    n_test = int(n * test_ratio)
+
+    val_tids = set(unique_tids[:n_val])
+    test_tids = set(unique_tids[n_val:n_val + n_test])
+
+    train_idx, val_idx, test_idx = [], [], []
+    for tid, indices in tid_to_indices.items():
+        if tid in val_tids:
+            val_idx.extend(indices)
+        elif tid in test_tids:
+            test_idx.extend(indices)
+        else:
+            train_idx.extend(indices)
+
+    return train_idx, val_idx, test_idx
 
 
 # ── датасет PyTorch ───────────────────────────────────────────────────────────
@@ -105,19 +148,65 @@ def make_dataset(tokenizer, inputs: list[str], targets: list[str],
 
 # ── метрики ───────────────────────────────────────────────────────────────────
 
-def compute_metrics(eval_pred):
-    """Приближённая оценка: доля одинаковых токенов (token accuracy)."""
-    import numpy as np
+def make_compute_metrics(tokenizer, use_bertscore: bool = False):
+    """Фабрика compute_metrics с доступом к tokenizer через замыкание.
 
-    preds, labels = eval_pred
-    if isinstance(preds, tuple):
-        preds = preds[0]
-    # argmax по logits
-    pred_ids = np.argmax(preds, axis=-1)
-    mask = labels != -100
-    correct = (pred_ids == labels) & mask
-    token_acc = correct.sum() / mask.sum() if mask.sum() > 0 else 0.0
-    return {"token_accuracy": float(token_acc)}
+    Args:
+        tokenizer: T5Tokenizer для декодирования token IDs в текст.
+        use_bertscore: считать BERTScore (медленно на CPU, ~2-5с/батч).
+            Рекомендуется включать только для финальной оценки.
+    """
+    from rouge_score import rouge_scorer, scoring
+
+    # rouge_score по умолчанию не поддерживает кириллицу — нужен tokenizer по пробелам
+    class _WhitespaceTokenizer:
+        """Токенизатор по пробелам для русского текста."""
+        def tokenize(self, text):
+            return text.lower().split()
+
+    scorer = rouge_scorer.RougeScorer(
+        ["rouge1", "rouge2", "rougeL"],
+        use_stemmer=False,
+        tokenizer=_WhitespaceTokenizer(),
+    )
+
+    def compute_metrics(eval_pred):
+        import numpy as np
+
+        preds, labels = eval_pred
+
+        # Заменяем -100 на pad_token_id для корректного декодирования
+        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+
+        decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        # ROUGE
+        r1_scores, r2_scores, rl_scores = [], [], []
+        for pred, ref in zip(decoded_preds, decoded_labels):
+            scores = scorer.score(ref.strip(), pred.strip())
+            r1_scores.append(scores["rouge1"].fmeasure)
+            r2_scores.append(scores["rouge2"].fmeasure)
+            rl_scores.append(scores["rougeL"].fmeasure)
+
+        result = {
+            "rouge1": float(np.mean(r1_scores)),
+            "rouge2": float(np.mean(r2_scores)),
+            "rougeL": float(np.mean(rl_scores)),
+        }
+
+        # BERTScore (опционально — медленный на CPU)
+        if use_bertscore:
+            from bert_score import score as bert_score_fn
+            _, _, f1 = bert_score_fn(
+                decoded_preds, decoded_labels,
+                lang="ru", verbose=False,
+            )
+            result["bertscore_f1"] = float(f1.mean())
+
+        return result
+
+    return compute_metrics
 
 
 # ── обучение ──────────────────────────────────────────────────────────────────
@@ -135,21 +224,22 @@ def train(args: argparse.Namespace) -> None:
     logger.info("Loading tokenizer: %s", BASE_MODEL)
     tokenizer = T5Tokenizer.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
 
-    all_inputs, all_targets = load_pairs(DATASET_PATH)
+    all_inputs, all_targets, all_tids = load_pairs(DATASET_PATH)
 
-    # train/val split
-    n = len(all_inputs)
-    n_val = max(int(n * 0.1), 50)
-    rng = np.random.default_rng(42)
-    idx = rng.permutation(n)
-    val_idx, train_idx = idx[:n_val], idx[n_val:]
+    # split по шаблонам (не по парам) — предотвращает data leakage
+    train_idx, val_idx, test_idx = split_by_templates(
+        all_tids, val_ratio=args.val_ratio, test_ratio=args.test_ratio,
+    )
 
     train_inputs  = [all_inputs[i]  for i in train_idx]
     train_targets = [all_targets[i] for i in train_idx]
     val_inputs    = [all_inputs[i]  for i in val_idx]
     val_targets   = [all_targets[i] for i in val_idx]
+    test_inputs   = [all_inputs[i]  for i in test_idx]
+    test_targets  = [all_targets[i] for i in test_idx]
 
-    logger.info("Train pairs: %d  Val pairs: %d", len(train_inputs), len(val_inputs))
+    logger.info("Split by templates: Train=%d  Val=%d  Test=%d (hold-out)",
+                len(train_inputs), len(val_inputs), len(test_inputs))
 
     train_ds = make_dataset(tokenizer, train_inputs, train_targets, args.max_src, args.max_tgt)
     val_ds   = make_dataset(tokenizer, val_inputs,   val_targets,   args.max_src, args.max_tgt)
@@ -167,8 +257,10 @@ def train(args: argparse.Namespace) -> None:
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
-        metric_for_best_model="token_accuracy",
-        predict_with_generate=False,  # teacher forcing — eval в 10x быстрее на CPU
+        metric_for_best_model="rouge1",
+        predict_with_generate=True,
+        generation_max_length=args.max_tgt,
+        generation_num_beams=4,
         logging_steps=50,
         warmup_ratio=0.05,
         fp16=False,   # CPU-safe; включить если есть GPU
@@ -177,13 +269,16 @@ def train(args: argparse.Namespace) -> None:
 
     collator = DataCollatorForSeq2Seq(tokenizer, model=model, padding=True)
 
+    # ROUGE на каждую эпоху, BERTScore только при финальной оценке (медленный на CPU)
+    epoch_metrics_fn = make_compute_metrics(tokenizer, use_bertscore=False)
+
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
         data_collator=collator,
-        compute_metrics=compute_metrics,
+        compute_metrics=epoch_metrics_fn,
     )
 
     logger.info("Training started...")
@@ -193,8 +288,23 @@ def train(args: argparse.Namespace) -> None:
     trainer.save_model(str(OUTPUT_DIR))
     tokenizer.save_pretrained(str(OUTPUT_DIR))
 
+    # финальная оценка с BERTScore (на val)
+    final_metrics_fn = make_compute_metrics(tokenizer, use_bertscore=True)
+    trainer.compute_metrics = final_metrics_fn
+
     metrics = trainer.evaluate()
-    logger.info("Final token_accuracy: %.4f", metrics.get("eval_token_accuracy", 0))
+    logger.info("Val metrics: ROUGE-1=%.4f  ROUGE-2=%.4f  ROUGE-L=%.4f  BERTScore-F1=%.4f",
+                metrics.get("eval_rouge1", 0), metrics.get("eval_rouge2", 0),
+                metrics.get("eval_rougeL", 0), metrics.get("eval_bertscore_f1", 0))
+
+    # оценка на test (hold-out) — если есть
+    if test_inputs:
+        test_ds = make_dataset(tokenizer, test_inputs, test_targets, args.max_src, args.max_tgt)
+        test_metrics = trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
+        logger.info("Test metrics (hold-out): ROUGE-1=%.4f  ROUGE-2=%.4f  ROUGE-L=%.4f  BERTScore-F1=%.4f",
+                    test_metrics.get("test_rouge1", 0), test_metrics.get("test_rouge2", 0),
+                    test_metrics.get("test_rougeL", 0), test_metrics.get("test_bertscore_f1", 0))
+
     logger.info("Done. Model saved to %s", OUTPUT_DIR)
 
 
@@ -205,8 +315,10 @@ def main() -> None:
     parser.add_argument("--epochs",  type=int,   default=5,    help="Число эпох (default: 5)")
     parser.add_argument("--lr",      type=float, default=5e-5, help="Learning rate (default: 5e-5)")
     parser.add_argument("--batch",   type=int,   default=16,   help="Batch size (default: 16)")
-    parser.add_argument("--max-src", type=int,   default=128,  help="Max source length (default: 128)")
-    parser.add_argument("--max-tgt", type=int,   default=64,   help="Max target length (default: 64)")
+    parser.add_argument("--max-src",    type=int,   default=128,  help="Max source length (default: 128)")
+    parser.add_argument("--max-tgt",    type=int,   default=64,   help="Max target length (default: 64)")
+    parser.add_argument("--val-ratio",  type=float, default=0.15, help="Val template ratio (default: 0.15)")
+    parser.add_argument("--test-ratio", type=float, default=0.15, help="Test template ratio (default: 0.15)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
