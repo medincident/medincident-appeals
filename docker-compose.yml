@@ -1,0 +1,136 @@
+services:
+
+  # ── NATS (JetStream включён флагом -js) ─────────────────────────────────────
+  nats:
+    image: nats:2.10-alpine
+    container_name: ai-medincident-nats
+    command: ["-js", "-m", "8222"]   # -js = JetStream, -m = HTTP monitoring port
+    restart: unless-stopped
+    # Порты не пробрасываются наружу — NATS доступен только внутри Docker-сети
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ai-medincident
+
+  # ── Categories Service — публикует категории в NATS KV и завершается ────────
+  categories-service:
+    build:
+      context: ./categories-service
+      dockerfile: Dockerfile
+    container_name: ai-medincident-categories
+    restart: on-failure   # повторяет только при ошибке, не при чистом выходе
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - ai-medincident
+
+  # ── LLM Service (Ollama + Qwen2.5-3B) ───────────────────────────────────────
+  llm-service:
+    build:
+      context: ./llm-service
+      dockerfile: Dockerfile
+    container_name: ai-medincident-llm
+    restart: unless-stopped
+    environment:
+      OLLAMA_MODEL: qwen2.5:3b
+    volumes:
+      - ollama_data:/root/.ollama   # модель сохраняется между перезапусками
+    # Раскомментировать когда появится NVIDIA GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    # Порт 11434 только внутри Docker-сети: http://llm-service:11434
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 180s   # время на скачивание модели (~2GB)
+    networks:
+      - ai-medincident
+
+  # ── AI Backend ───────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    # Backend доступен только внутри Docker-сети; frontend обращается к нему по имени сервиса
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - ai-medincident
+
+  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ───────────────────────────────
+  nlp-service:
+    build:
+      context: ./nlp-service
+      dockerfile: Dockerfile
+    container_name: ai-medincident-nlp
+    restart: unless-stopped
+    environment:
+      NATS_URL: nats://nats:4222
+    volumes:
+      - nlp_models:/app/models_cache     # модели сохраняются между перезапусками
+      - nlp_trained:/app/trained_models  # fine-tuned модели
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s   # время на загрузку моделей (~368MB)
+    networks:
+      - ai-medincident
+
+  # ── Frontend PROD: multi-stage build, bun native runtime ─────────────────────
+  frontend:
+    profiles: [prod]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
+        AUTH_ORG_ID: "366537916404531205"
+        AUTH_CLIENT_ID: "367696885982494726"
+        APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+        AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
+        NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "8082:3000"
+    environment:
+      AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
+      AUTH_ORG_ID: "366537916404531205"
+      AUTH_CLIENT_ID: "367696885982494726"
+      APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
+      NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      # NextAuth использует AUTH_URL для построения redirect_uri
+      AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+    networks:
+      - ai-medincident
+    depends_on:
+      - backend
+
+networks:
+  ai-medincident:
+    driver: bridge
+
+volumes:
+  ollama_data:   # модель Ollama/Qwen (~1.9GB)
+  nlp_models:    # кэш HuggingFace моделей (~368MB)
+  nlp_trained:   # fine-tuned веса после train_*.py
