@@ -305,3 +305,138 @@
 ### 2.5 Верификация отсутствия data leakage
 
 Проверено программно: пересечение множеств `template_id` между train, val и test пусто для обоих скриптов. Ни один шаблон не присутствует одновременно в двух сплитах.
+
+---
+
+## 3. Baseline-оценка нетренированных моделей
+
+### 3.1 Цель
+
+Оценить качество базовых (не fine-tuned) моделей на hold-out test set для установления нижней границы (baseline). Эти результаты будут сравниваться с fine-tuned моделями и LLM-подходом (Qwen) для демонстрации эффекта дообучения.
+
+### 3.2 Как воспроизвести
+
+```bash
+cd nlp-service
+
+# Полная оценка (classifier + seq2seq на 50 примерах)
+python3 eval_baseline.py --limit 50
+
+# Только classifier (быстро, ~5 сек на 447 примеров)
+python3 eval_baseline.py --skip-seq2seq
+
+# Все примеры (seq2seq ~25 мин на CPU)
+python3 eval_baseline.py
+```
+
+Скрипт `eval_baseline.py` автоматически:
+1. Загружает `dataset.jsonl` и делает split по `template_id` (70/15/15, seed=42);
+2. Берёт test split (447 примеров, 322 important + 125 not-important);
+3. Загружает базовые модели из HuggingFace (без fine-tuned весов);
+4. Считает метрики: accuracy, F1, precision, recall, confusion matrix (classifier); ROUGE-1/2/L (seq2seq).
+
+### 3.3 Результаты: ImportanceClassifier (base rubert-tiny2)
+
+Модель: `cointegrated/rubert-tiny2` (29 MB, 3 layers, 312 hidden dim).
+Классификационная голова (`Linear(312, 2)`) инициализирована случайно — модель не обучена определять важность обращений.
+
+| Метрика | Значение |
+|---------|----------|
+| Test examples | 447 (322 imp / 125 not-imp) |
+| Accuracy | 0.5235 |
+| F1-macro | 0.5231 |
+| F1-binary (important) | 0.5103 |
+| Precision-macro | 0.6753 |
+| Recall-macro | 0.6644 |
+| Avg latency | 10.1 ms/example |
+
+**Confusion matrix:**
+
+|  | Pred: not-imp | Pred: imp |
+|--|---------------|-----------|
+| True: not-imp | TN=123 | FP=2 |
+| True: imp | FN=211 | TP=111 |
+
+**Интерпретация:** Базовая модель предсказывает большинство обращений как "не важное" (211 из 322 важных пропущены). F1-macro ~0.52 — лишь немного лучше случайного угадывания. Это ожидаемо: классификационная голова не обучена, модель не умеет различать классы.
+
+### 3.4 Результаты: TextProcessor (base rut5-base-multitask)
+
+Модель: `cointegrated/rut5-base-multitask` (222 MB, encoder-decoder T5). Предобучена на задачах суммаризации и перефразирования русского текста — поэтому может давать осмысленный, хоть и нецелевой, выход.
+
+**Формализация (important test, 50 примеров):**
+
+| Метрика | Значение |
+|---------|----------|
+| ROUGE-1 | 0.1487 |
+| ROUGE-2 | 0.0779 |
+| ROUGE-L | 0.1487 |
+
+**Тезисы (important test, 50 примеров):**
+
+| Метрика | Значение |
+|---------|----------|
+| ROUGE-1 | 0.1704 |
+| ROUGE-2 | 0.0257 |
+| ROUGE-L | 0.1683 |
+
+| Параметр | Значение |
+|----------|----------|
+| Avg latency | 3474 ms/example (CPU, beam search, num_beams=4) |
+
+**Интерпретация:** ROUGE-L ~0.15 означает, что базовая модель генерирует текст, совпадающий с эталоном лишь на ~15%. Модель умеет перефразировать русский текст (предобучение), но не знает медицинскую терминологию и формат формализации. Fine-tuning должен значительно улучшить эти показатели.
+
+### 3.5 Сводная таблица baseline
+
+| Модель | Задача | Метрика | Baseline (no fine-tune) | Цель (после fine-tune) |
+|--------|--------|---------|------------------------|----------------------|
+| rubert-tiny2 | is_important | F1-macro | 0.52 | >0.90 |
+| rut5-base | formalize | ROUGE-L | 0.15 | >0.55 |
+| rut5-base | theses | ROUGE-L | 0.17 | >0.45 |
+
+---
+
+### 3.6 Результаты: LLM Qwen2.5-3B (zero-shot)
+
+> **TODO: Переделать.** Результаты предварительные — протестировано ~10 примеров на CPU (~104с/запрос).
+> Нужно: запустить на 30-50 примерах (на GPU ~3-5с/запрос, ~3 мин вместо ~55 мин).
+> Команда: `python3 eval_llm.py --limit 30`
+
+Модель: Qwen2.5-3B (GGUF Q4_K_M, ~1.9 GB) через Ollama. Zero-shot — модель не обучалась на датасете. Категории передаются динамически в промпте.
+
+**Предварительные наблюдения (10 примеров):**
+
+| Метрика | Значение | Комментарий |
+|---------|----------|-------------|
+| Valid JSON rate | ~100% | Модель стабильно возвращает валидный JSON |
+| is_important accuracy | ~высокая | Корректно отличает жалобы от не-жалоб |
+| category accuracy | ~высокая | Верно выбирает категорию из списка |
+| subcategory accuracy | ~средняя | Иногда путает подкатегории внутри категории |
+| ROUGE-L (formalize) | TODO | Нужен полный прогон |
+| ROUGE-L (theses) | TODO | Нужен полный прогон |
+| Avg latency (CPU) | ~104 000 ms | ~104с на CPU, ~3-5с на GPU |
+
+**Как тестировать:**
+
+```bash
+# Требование: Docker контейнер llm-service запущен
+docker compose up llm-service -d
+
+# Оценка на test set (30 примеров, ~55 мин CPU / ~3 мин GPU)
+python3 eval_llm.py --limit 30
+
+# Один пример (быстрая проверка)
+python3 test_llm.py --seed 42
+```
+
+### 3.7 Сводная таблица: NLP baseline vs LLM baseline
+
+> **TODO: Заполнить ROUGE после полного прогона LLM eval.**
+
+| Метрика | NLP (base, no fine-tune) | LLM (Qwen, zero-shot) | Цель NLP (после fine-tune) |
+|---------|--------------------------|----------------------|--------------------------|
+| is_important F1-macro | 0.52 | TODO (оценка >0.85) | >0.90 |
+| category accuracy | N/A (zero-shot MiniLM) | TODO (оценка >0.70) | >0.70 |
+| subcategory accuracy | N/A | TODO (оценка >0.50) | >0.55 |
+| formalize ROUGE-L | 0.15 | TODO | >0.55 |
+| theses ROUGE-L | 0.17 | TODO | >0.45 |
+| Latency (CPU) | ~10 ms (clf) + 3474 ms (seq2seq) | ~104 000 ms | ~1 000 ms total |
