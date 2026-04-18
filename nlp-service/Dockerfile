@@ -20,8 +20,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     TRANSFORMERS_CACHE=/app/models_cache \
     SENTENCE_TRANSFORMERS_HOME=/app/models_cache
 
-COPY pyproject.toml .
-RUN uv pip install -e . --no-cache
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen
 
 COPY . .
 

@@ -2,221 +2,126 @@
 
 ## Назначение
 
-ИИ-система для обработки обращений пациентов в больнице. Пациент пишет свободный текст — система анализирует, классифицирует и структурирует жалобу в формализованный медицинский инцидент.
+Дипломная работа. ИИ-система для обработки обращений пациентов в больнице. Пациент пишет свободный текст — система классифицирует и структурирует жалобу в формализованный медицинский инцидент.
+
+**Суть диплома** — сравнение двух подходов: LLM (Qwen2.5-3B zero-shot) vs NLP-pipeline (3 fine-tuned модели).
 
 ---
 
-## Итоговый JSON (выход системы)
+## Файлы документации
 
-```json
-{
-  "is_important": true,
-  "reason": "Содержит жалобу на падения пациентов в мо",
-  "formalized_text": "Пациент упал с кровати в ночное время. Вызов персонала остался без ответа.",
-  "theses": ["Падение с кровати ночью", "Персонал не откликнулся на вызов"],
-  "category": {"id": "cat_1", "name": "Организация ухода за пациентами"},
-  "subcategory": {"id": "sub_1_1", "name": "Падения пациентов в МО"}
-}
-```
+| Файл | Что внутри | Когда читать |
+|------|-----------|--------------|
+| `theory.md` | **Вся теория** — BERT, T5, embeddings, beam search, loss, метрики, аугментация, data leakage, бенчмаркинг | Чтобы понять КАК и ПОЧЕМУ работает каждая модель |
+| `report.md` | **Результаты для диплома** — статистика датасета, baseline метрики, бенчмарки, сравнительные таблицы. Дополняется по мере работы | Чтобы посмотреть текущие числа и результаты |
+| `frontend/plan.md` | Полный анализ проекта — модели, баги, рекомендации | Справочник по архитектуре |
+| `frontend/CONTEXT.md` | Краткий контекст для нового чата | Быстрый онбординг |
+| `frontend/questions.md` | Вопросы руководителю диплома | Методологические вопросы |
 
 ---
 
-## Два подхода к обработке (реализованы параллельно)
+## Два подхода
 
-### Подход 1 — llm-service (Qwen2.5-3B через Ollama)
-- Один вызов к LLM → полный JSON
-- Категории передаются динамически в user message из NATS
-- CPU: ~130s/запрос. GPU: ~3-5s
-- Подробности: [llm-service/CLAUDE.md](llm-service/CLAUDE.md)
+### Подход 1 — LLM (Qwen2.5-3B через Ollama)
+- Один вызов → полный JSON. Zero-shot.
+- CPU: ~104s/запрос. GPU: ~3-5s. RAM: ~4 GB.
+- Подробности: `llm-service/CLAUDE.md`
 
-### Подход 2 — nlp-service (NLP-пайплайн без LLM)
-- Три специализированные модели: rubert-tiny2 + rut5 + MiniLM
-- CPU: ~1s/запрос, ~370 MB суммарно
-- CategoryMatcher работает zero-shot — автоматически подхватывает новые категории из NATS
-- Подробности: [nlp-service/CLAUDE.md](nlp-service/CLAUDE.md)
+### Подход 2 — NLP-pipeline (3 специализированные модели)
+- `rubert-tiny2` (29 MB) → is_important (бинарная классификация)
+- `rut5-base-multitask` (222 MB) → formalized_text + theses (seq2seq)
+- `MiniLM-L12-v2` (117 MB) → category + subcategory (zero-shot cosine similarity)
+- CPU: p50=7ms, p95=4.3s. RAM: ~1.6 GB.
+- Подробности: `nlp-service/CLAUDE.md`
 
 ---
 
-## Сервисы (docker-compose)
-
-| Сервис | Роль | Порт снаружи |
-|--------|------|--------------|
-| `nats` | Шина сообщений + KV-хранилище категорий | — (внутренний) |
-| `categories-service` | Публикует категории в NATS KV при старте, затем завершается | — |
-| `llm-service` | Ollama + Qwen2.5-3B | — (внутренний) |
-| `nlp-service` | FastAPI: rubert + rut5 + MiniLM | — (внутренний) |
-| `backend` | AI Backend — оркестрирует пайплайн | — (внутренний) |
-| `frontend` | Веб-интерфейс для пациентов | **8082** → 3000 |
+## Структура проекта
 
 ```
-Пациент (браузер :8082)
-    │
-    ▼
-frontend ──► backend ──► llm-service  (Подход 1)
-                    └──► nlp-service  (Подход 2)
-                    └──► nats KV (категории)
+ai_medincident/
+├── dataset.jsonl              # 3000 примеров (75/25 баланс, template_id)
+├── generate_dataset.py        # генератор датасета (seed=42)
+├── test_llm.py                # тест Qwen на 1 примере
+├── benchmark_llm.py           # бенчмарк Qwen на test set
+├── theory.md                  # вся теория
+├── report.md                  # результаты для диплома
+├── categories-service/        # публикация категорий в NATS KV
+├── llm-service/               # Ollama + Qwen2.5-3B
+├── nlp-service/               # NLP-пайплайн
+│   ├── models/                # classifier, seq2seq, similarity
+│   ├── train_classifier.py    # fine-tune rubert-tiny2
+│   ├── train_seq2seq.py       # fine-tune rut5 (ROUGE + BERTScore метрики)
+│   ├── benchmark_nlp.py       # бенчмарк NLP pipeline (quality + latency + memory)
+│   └── trained_models/        # fine-tuned веса (после обучения)
+├── backend/                   # Python backend, оркестрирует пайплайн
+├── frontend/                  # Next.js 16 + NextAuth + Zitadel
+└── docker-compose.yml
 ```
-
----
-
-## Категории инцидентов
-
-Хранятся в `categories-service/categories.py`. 7 категорий, 21 подкатегория.
-
-| ID | Категория | Подкатегории |
-|----|-----------|-------------|
-| cat_1 | Организация ухода за пациентами | sub_1_1..1_4 |
-| cat_2 | Лекарственная безопасность | sub_2_1..2_3 |
-| cat_3 | Хирургическая безопасность | sub_3_1..3_3 |
-| cat_4 | Диагностические ошибки | sub_4_1..4_3 |
-| cat_5 | Инфекционная безопасность | sub_5_1..5_3 |
-| cat_6 | Условия пребывания | sub_6_1..6_3 |
-| cat_7 | Поведение и отношение персонала | sub_7_1..7_3 |
-
-При старте `categories-service` публикует их в NATS JetStream KV:
-- Бакет: `medincident`, ключ: `categories`
-- Backend и nlp-service читают и следят за обновлениями через `kv.watchall()`
 
 ---
 
 ## Датасет
 
-`dataset.jsonl` — 3000 синтетических примеров для fine-tune моделей.
+`dataset.jsonl` — 3000 синтетических примеров. Генерация: `python3 generate_dataset.py`
 
-**Формат:**
-```json
-{"messages": [
-  {"role": "user", "content": "жалоба пациента"},
-  {"role": "assistant", "content": "{...json...}"}
-], "template_id": "imp_42"}
-```
-
-- Системный промпт и список категорий **добавляются динамически** при обучении и инференсе
-- `template_id` — идентификатор шаблона, используется для split без data leakage
-
-**Ключевые параметры:**
 - 199 шаблонов (164 важных + 35 неважных), ~15 вариаций на шаблон
-- Баланс: 75% важных (2250) / 25% неважных (750)
-- Длина текстов: 4-414 символов (avg=101)
-- Аугментация: синонимы, опечатки (28 паттернов), разговорные вставки, стилевые обёртки
-- Train/val/test split по template_id: 70/15/15 (нет data leakage)
-
-**Генерация:** `python3 generate_dataset.py` (seed=42, воспроизводимо)
-
-**Подробный отчёт:** см. `report.md` — полное описание датасета, аугментации и split для диплома
+- Баланс: 75% important / 25% not-important
+- Аугментация: синонимы, опечатки, разговорные вставки, стилевые обёртки
+- `template_id` в каждой строке — для split без data leakage
+- Train/val/test split по шаблонам: 70/15/15
 
 ---
 
-## Тестирование LLM
+## Категории
 
-`test_llm.py` — тестирует Подход 1 (llm-service):
-```bash
-python3 test_llm.py                   # 1 важный пример
-python3 test_llm.py --not-important   # 1 неважный пример
-python3 test_llm.py --n 5             # 5 примеров + summary
-python3 test_llm.py --seed 42         # воспроизводимый выбор
-```
-Автоматически определяет IP контейнера через `docker inspect`, декорирует обращение категориями из NATS.
+Хранятся в `categories-service/categories.py`. 7 категорий, 22 подкатегории. Публикуются в NATS KV при старте.
 
----
-
-## NATS JetStream KV
-
-- Образ: `nats:2.10-alpine`, флаг `-js` (JetStream включён)
-- Мониторинг: `http://nats:8222/healthz` (внутри сети)
-- Бакет `medincident` создаётся `categories-service` при первом запуске
-
----
-
-## Порядок запуска
-
-```bash
-docker compose up --build
-```
-
-Порядок старта через `depends_on` + healthcheck:
-1. `nats` стартует и проходит healthcheck
-2. `categories-service` публикует категории → завершается
-3. `llm-service`, `nlp-service`, `backend` стартуют параллельно
-4. `frontend` стартует после `backend`
-
----
-
-## Fine-tune NLP моделей
-
-После генерации датасета:
-
-```bash
-cd nlp-service
-
-# Скачать базовые модели
-python3 load.py
-
-# Обучить классификатор важности (~20 мин CPU / ~3 мин GPU)
-python3 train_classifier.py
-
-# Обучить seq2seq формализатор (~60 мин CPU / ~8 мин GPU)
-python3 train_seq2seq.py
-```
-
-Fine-tuned веса сохраняются в `trained_models/` (Docker volume `nlp_trained`).
-После обучения перезапустить nlp-service: `docker compose restart nlp-service`.
-
----
-
-## Технологический стек
-
-| Слой | Технология |
-|------|-----------|
-| Backend | Python 3.12 + nats-py |
-| LLM Inference | Ollama + Qwen2.5-3B (GGUF Q4_K_M) |
-| NLP классификатор | cointegrated/rubert-tiny2 (HuggingFace Transformers) |
-| NLP seq2seq | cointegrated/rut5-base-multitask (HuggingFace) |
-| NLP similarity | paraphrase-multilingual-MiniLM-L12-v2 (sentence-transformers) |
-| Шина/KV | NATS JetStream |
-| API (nlp-service) | FastAPI + uvicorn |
-| Контейнеризация | Docker Compose |
-| Frontend | Next.js 16 + Bun + NextAuth + Zitadel OAuth |
-| UI компоненты | shadcn/ui + Tailwind v4 + Radix UI |
-
----
-
-## Важные файлы документации
-
-| Файл | Назначение |
-|------|-----------|
-| `report.md` | **Отчёт для диплома** — описание датасета, аугментации, split, статистика. Дополняется по мере работы. Писать новые разделы сюда. |
-| `frontend/plan.md` | Полный анализ проекта — модели, баги, рекомендации, терминология. Справочник. |
-| `frontend/CONTEXT.md` | Краткий контекст для нового чата — структура, подходы, что сделано/нужно сделать. |
-| `frontend/questions.md` | Вопросы руководителю диплома по методологии. |
-
----
-
-## Контекст диплома
-
-Дипломная работа. Суть — **сравнение двух подходов** обработки обращений пациентов: LLM (Qwen zero-shot) vs NLP-pipeline (3 fine-tuned модели).
-
-**Реальные категории с сервера** (отличаются от текущих в `categories.py`):
+**Реальные категории с сервера** (отличаются от текущих в `categories.py`, обновление TODO):
 1. Организация работы регистратуры КДО (3 подкатегории)
-2. Профилактика рисков, связанных с переливанием донорской крови (1 подкатегория)
+2. Профилактика рисков переливания крови (1 подкатегория)
 3. Организация ухода за пациентами (5 подкатегорий)
 
-Категории динамические — приходят с сервера, `categories.py` будет обновлён отдельно.
+---
 
-**Что сделано:**
-- Полная архитектура с двумя подходами
-- Датасет 3000 примеров (199 шаблонов, аугментация, template_id)
-- Все три NLP-модели + FastAPI + NATS
-- Docker Compose оркестрация
-- Frontend с NextAuth/Zitadel
-- Split по шаблонам (без data leakage) в training скриптах
-- test_llm.py для бенчмарка Qwen
+## Быстрые команды
 
-**Что нужно сделать:**
-1. Обновить categories.py под реальные категории с сервера
-2. Запустить baselines (base модели без fine-tune)
-3. Обучить rubert-tiny2 и rut5
-4. Единый benchmark runner (NLP vs LLM)
-5. ROUGE/BERTScore метрики в train_seq2seq.py
-6. Замерить latency и memory для обоих подходов
-7. Сравнительная таблица результатов
+```bash
+# Запустить всё
+docker compose up --build
+
+# Генерация датасета
+python3 generate_dataset.py
+
+# Обучение (cd nlp-service)
+python3 train_classifier.py    # ~20 мин CPU
+python3 train_seq2seq.py       # ~60 мин CPU
+
+# Бенчмарки (cd nlp-service)
+python3 benchmark_nlp.py       # полный pipeline (quality + latency + memory)
+
+# LLM тест
+python3 test_llm.py --seed 42  # один пример
+python3 benchmark_llm.py --limit 30 # бенчмарк (~55 мин CPU)
+```
+
+---
+
+## Что сделано
+
+- [x] Архитектура с двумя подходами (LLM + NLP)
+- [x] Датасет 3000 примеров (199 шаблонов, аугментация, template_id)
+- [x] Split по шаблонам (без data leakage) в training скриптах
+- [x] ROUGE/BERTScore метрики в train_seq2seq.py
+- [x] Baseline оценка нетренированных моделей
+- [x] Benchmark runner NLP (quality + latency + memory)
+- [x] benchmark_llm.py (скрипт готов и проверен на 1 примере, нужен полный прогон)
+- [x] theory.md — полная теоретическая база
+- [x] report.md — результаты для диплома
+
+## Что нужно сделать
+
+1. **Обновить categories.py** под реальные категории с сервера (нужен полный список)
+2. **Обучить модели** — `train_classifier.py` + `train_seq2seq.py` (датасет и скрипты готовы)
+3. **Прогнать benchmark_llm.py** — `python3 benchmark_llm.py --limit 30` (~55 мин CPU / ~3 мин GPU)
+4. **Заполнить сравнительную таблицу** в report.md (после п.2 и п.3)

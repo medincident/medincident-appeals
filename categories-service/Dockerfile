@@ -8,8 +8,8 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_SYSTEM_PYTHON=1
 
-COPY pyproject.toml .
-RUN uv pip install -e . --no-cache
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen
 
 COPY . .
 

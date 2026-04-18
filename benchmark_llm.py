@@ -1,25 +1,29 @@
 #!/usr/bin/env python3
 """
-eval_llm.py — оценка Qwen2.5-3B (zero-shot) на test set.
+benchmark_llm.py — полный бенчмарк Qwen2.5-3B (zero-shot) на test set.
 
 Запуск:
-  python3 eval_llm.py              # 30 примеров (по умолчанию)
-  python3 eval_llm.py --limit 50   # 50 примеров
-  python3 eval_llm.py --limit 0    # все 447 (долго, ~14 часов CPU)
+  python3 benchmark_llm.py              # 30 примеров (~55 мин CPU / ~3 мин GPU)
+  python3 benchmark_llm.py --limit 50   # 50 примеров
+  python3 benchmark_llm.py --limit 0    # все 447 (~14 часов CPU)
 
 Требования: Docker контейнер ai-medincident-llm должен быть запущен.
-  docker compose up llm-service
+  docker compose up llm-service -d
+
+Измеряет:
+  1. Качество: is_important (F1-macro), category/subcategory accuracy, ROUGE, valid JSON rate
+  2. Latency: per-request avg, p50, p95, total
+  3. Memory: Docker контейнер stats
 """
 
-import json
 import argparse
+import json
 import logging
 import subprocess
 import sys
 import time
 import urllib.request
 from pathlib import Path
-from collections import Counter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -70,6 +74,32 @@ def detect_llm_url():
     return "http://localhost:11434"
 
 
+def get_container_memory(container_name="ai-medincident-llm"):
+    """Получить потребление памяти Docker контейнера."""
+    try:
+        result = subprocess.run(
+            ["docker", "stats", container_name, "--no-stream", "--format",
+             "{{.MemUsage}} | {{.MemPerc}}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.stdout.strip()
+    except Exception:
+        return "N/A"
+
+
+def get_model_size(container_name="ai-medincident-llm"):
+    """Получить размер модели внутри Docker контейнера."""
+    try:
+        result = subprocess.run(
+            ["docker", "exec", container_name, "du", "-sh",
+             "/root/.ollama/models/"],
+            capture_output=True, text=True, timeout=10,
+        )
+        return result.stdout.strip().split("\t")[0]
+    except Exception:
+        return "~1.9 GB (Q4_K_M)"
+
+
 def call_llm(url, model, messages):
     payload = json.dumps({
         "model": model, "messages": messages, "stream": False,
@@ -95,7 +125,6 @@ def load_test_set():
     texts, labels, template_ids = load_dataset(DATASET_PATH)
     _, _, test_idx = split_by_templates(template_ids)
 
-    test_answers = []
     all_answers = []
     with open(DATASET_PATH, encoding="utf-8") as f:
         for line in f:
@@ -109,7 +138,7 @@ def load_test_set():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate Qwen2.5-3B (zero-shot) on test set")
+    parser = argparse.ArgumentParser(description="Benchmark Qwen2.5-3B (zero-shot) on test set")
     parser.add_argument("--limit", type=int, default=30, help="Number of test examples (0=all)")
     parser.add_argument("--url", default=None, help="Ollama URL (auto-detected)")
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -117,6 +146,17 @@ def main():
 
     url = args.url or detect_llm_url()
     logger.info("LLM URL: %s, model: %s", url, args.model)
+
+    # Проверка доступности LLM
+    try:
+        check_url = f"{url}/v1/models"
+        with urllib.request.urlopen(check_url, timeout=5):
+            pass
+        logger.info("LLM service is reachable")
+    except Exception as e:
+        logger.error("Cannot reach LLM at %s: %s", url, e)
+        logger.error("Start it with: docker compose up llm-service -d")
+        sys.exit(1)
 
     test_texts, test_labels, test_answers = load_test_set()
     if args.limit > 0:
@@ -130,19 +170,24 @@ def main():
     cats_block = build_categories_block(CATEGORIES)
 
     from rouge_score import rouge_scorer
+    from sklearn.metrics import f1_score
 
     class _WS:
         def tokenize(self, text):
             return text.lower().split()
 
-    scorer = rouge_scorer.RougeScorer(["rouge1", "rouge2", "rougeL"],
-                                       use_stemmer=False, tokenizer=_WS())
+    scorer = rouge_scorer.RougeScorer(
+        ["rouge1", "rouge2", "rougeL"], use_stemmer=False, tokenizer=_WS(),
+    )
 
     # Accumulators
-    imp_correct, imp_total = 0, 0
+    all_preds_imp = []  # predicted is_important
+    all_true_imp = []   # true is_important
     cat_correct, cat_total = 0, 0
     sub_correct, sub_total = 0, 0
     valid_json_count = 0
+    invalid_json_count = 0
+    failed_count = 0
     form_r1, form_r2, form_rl = [], [], []
     thes_r1, thes_r2, thes_rl = [], [], []
     latencies = []
@@ -159,20 +204,21 @@ def main():
             latencies.append(elapsed)
         except Exception as e:
             logger.warning("Example %d failed: %s", i + 1, e)
+            failed_count += 1
             continue
 
         try:
             actual = json.loads(raw)
             valid_json_count += 1
         except json.JSONDecodeError:
-            logger.warning("Example %d: invalid JSON", i + 1)
+            logger.warning("Example %d: invalid JSON: %s", i + 1, raw[:100])
+            invalid_json_count += 1
             continue
 
         # is_important
-        imp_total += 1
         pred_imp = actual.get("is_important", False)
-        if pred_imp == expected["is_important"]:
-            imp_correct += 1
+        all_preds_imp.append(1 if pred_imp else 0)
+        all_true_imp.append(label)
 
         # category / subcategory (only for important)
         if expected["is_important"]:
@@ -190,7 +236,7 @@ def main():
                 if exp_sub == act_sub:
                     sub_correct += 1
 
-            # ROUGE for formalized_text
+            # ROUGE formalized_text
             ref_form = expected.get("formalized_text", "")
             pred_form = actual.get("formalized_text", "")
             if ref_form and pred_form:
@@ -199,7 +245,7 @@ def main():
                 form_r2.append(sc["rouge2"].fmeasure)
                 form_rl.append(sc["rougeL"].fmeasure)
 
-            # ROUGE for theses
+            # ROUGE theses
             ref_theses = expected.get("theses", [])
             pred_theses = actual.get("theses", [])
             if ref_theses and pred_theses:
@@ -215,30 +261,53 @@ def main():
                         i + 1, len(test_texts),
                         sum(latencies) / len(latencies) if latencies else 0)
 
+    # ── Results ──────────────────────────────────────────────────────────
     def avg(lst):
         return sum(lst) / len(lst) if lst else 0.0
 
-    # Results
-    print(f"\n{'='*60}")
-    print(f"=== LLM BASELINE (Qwen2.5-3B, zero-shot) ===")
-    print(f"{'='*60}")
-    print(f"  Examples tested:     {len(latencies)}")
-    print(f"  Valid JSON:          {valid_json_count}/{len(latencies)}")
-    print(f"  --- Classification ---")
-    print(f"    is_important acc:  {imp_correct/imp_total:.4f}" if imp_total else "    N/A")
-    print(f"    category acc:      {cat_correct/cat_total:.4f} ({cat_correct}/{cat_total})" if cat_total else "    N/A")
-    print(f"    subcategory acc:   {sub_correct/sub_total:.4f} ({sub_correct}/{sub_total})" if sub_total else "    N/A")
-    print(f"  --- Formalization (ROUGE, important only) ---")
-    print(f"    ROUGE-1: {avg(form_r1):.4f}  ({len(form_r1)} examples)")
-    print(f"    ROUGE-2: {avg(form_r2):.4f}")
-    print(f"    ROUGE-L: {avg(form_rl):.4f}")
-    print(f"  --- Theses (ROUGE, important only) ---")
-    print(f"    ROUGE-1: {avg(thes_r1):.4f}  ({len(thes_r1)} examples)")
-    print(f"    ROUGE-2: {avg(thes_r2):.4f}")
-    print(f"    ROUGE-L: {avg(thes_rl):.4f}")
-    print(f"  --- Latency ---")
-    print(f"    Avg: {avg(latencies)*1000:.0f} ms/example")
-    print(f"    Total: {sum(latencies):.0f} s")
+    f1m = f1_score(all_true_imp, all_preds_imp, average="macro") if all_true_imp else 0.0
+    f1b = f1_score(all_true_imp, all_preds_imp, average="binary") if all_true_imp else 0.0
+    imp_acc = sum(1 for a, b in zip(all_true_imp, all_preds_imp) if a == b) / len(all_true_imp) if all_true_imp else 0.0
+
+    # Docker memory
+    docker_mem = get_container_memory()
+    model_size = get_model_size()
+
+    print(f"\n{'='*65}")
+    print(f"  LLM BENCHMARK (Qwen2.5-3B, zero-shot, {args.model})")
+    print(f"{'='*65}")
+
+    print(f"\n--- 1. QUALITY METRICS ---")
+    print(f"  Tested:              {len(latencies)} examples")
+    print(f"  Failed requests:     {failed_count}")
+    print(f"  Valid JSON:          {valid_json_count}/{valid_json_count + invalid_json_count}"
+          f" ({valid_json_count/(valid_json_count+invalid_json_count)*100:.0f}%)" if (valid_json_count + invalid_json_count) > 0 else "")
+    print(f"  Classification:")
+    print(f"    is_important acc:  {imp_acc:.4f}")
+    print(f"    is_important F1-m: {f1m:.4f}")
+    print(f"    is_important F1-b: {f1b:.4f}")
+    if cat_total:
+        print(f"    category acc:      {cat_correct/cat_total:.4f} ({cat_correct}/{cat_total})")
+    if sub_total:
+        print(f"    subcategory acc:   {sub_correct/sub_total:.4f} ({sub_correct}/{sub_total})")
+    print(f"  Formalization ({len(form_rl)} important examples):")
+    print(f"    ROUGE-1: {avg(form_r1):.4f}  ROUGE-2: {avg(form_r2):.4f}  ROUGE-L: {avg(form_rl):.4f}")
+    print(f"  Theses ({len(thes_rl)} important examples):")
+    print(f"    ROUGE-1: {avg(thes_r1):.4f}  ROUGE-2: {avg(thes_r2):.4f}  ROUGE-L: {avg(thes_rl):.4f}")
+
+    print(f"\n--- 2. LATENCY ---")
+    if latencies:
+        sorted_lat = sorted(latencies)
+        print(f"    Avg:   {avg(latencies)*1000:.0f} ms")
+        print(f"    p50:   {sorted_lat[len(sorted_lat)//2]*1000:.0f} ms")
+        print(f"    p95:   {sorted_lat[int(len(sorted_lat)*0.95)]*1000:.0f} ms")
+        print(f"    Min:   {min(latencies)*1000:.0f} ms")
+        print(f"    Max:   {max(latencies)*1000:.0f} ms")
+        print(f"    Total: {sum(latencies):.0f} s")
+
+    print(f"\n--- 3. MEMORY ---")
+    print(f"    Model size:       {model_size}")
+    print(f"    Docker container: {docker_mem}")
 
 
 if __name__ == "__main__":

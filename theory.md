@@ -700,3 +700,57 @@ POST /v1/chat/completions
 ### Ключевой вывод для диплома
 
 NLP-pipeline после fine-tune может достичь **сопоставимого качества** с LLM при **100x меньшей latency** и **5x меньшем потреблении ресурсов**. Однако LLM лучше обобщает на unseen типы жалоб благодаря масштабу предобучения.
+
+---
+
+## 13. Методология бенчмаркинга
+
+### Принцип: один test set для всех
+
+Оба подхода (NLP и LLM) оцениваются на **одном и том же hold-out test set** (447 примеров, 322 important + 125 not-important). Test set выделен из датасета через split по `template_id` — ни один шаблон из test не встречался при обучении.
+
+### Три оси сравнения
+
+**1. Качество (Quality)**
+
+| Что измеряем | Метрика | Почему именно эта |
+|---|---|---|
+| Классификация важности | F1-macro | Устойчива к дисбалансу 75/25 |
+| Выбор категории | Category accuracy | Точное совпадение ID |
+| Выбор подкатегории | Subcategory accuracy | Точное совпадение ID |
+| Формализация текста | ROUGE-L | Структурное сходство (LCS) |
+| Извлечение тезисов | ROUGE-L | Структурное сходство |
+
+**2. Скорость (Latency)**
+
+Измеряется `time.time()` до и после каждого компонента:
+- **Per-component**: classifier, seq2seq, matcher — отдельно
+- **Full pipeline**: от входа текста до полного JSON
+- **Percentiles**: p50 (медиана) и p95 (хвост)
+
+Важно: p50 для NLP-pipeline сильно ниже p95 из-за раннего выхода — если classifier предсказывает "не важно", seq2seq и matcher не вызываются.
+
+**3. Ресурсы (Memory)**
+
+- **Disk**: размер файлов моделей (safetensors)
+- **RAM**: RSS процесса через `resource.getrusage()` (или `torch.cuda.memory_allocated()` для GPU)
+
+### Pipeline NLP: full flow
+
+```
+text --> [Classifier 10ms] --> not_important? --> return (p50 = 7ms)
+                            |
+                            v important
+         [Formalize 1800ms] + [Theses 1800ms] + [Matcher 74ms]
+                            |
+                            v
+                     full JSON (p95 = 4340ms)
+```
+
+### Pipeline LLM: full flow
+
+```
+text + categories --> [Qwen2.5-3B ~104s CPU / ~4s GPU] --> full JSON
+```
+
+Нет раннего выхода — LLM всегда выполняет полный анализ.

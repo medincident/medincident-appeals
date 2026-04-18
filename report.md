@@ -319,21 +319,22 @@
 ```bash
 cd nlp-service
 
-# Полная оценка (classifier + seq2seq на 50 примерах)
-python3 eval_baseline.py --limit 50
+# Полный бенчмарк (quality + latency + memory, ~4 мин CPU)
+python3 benchmark_nlp.py
 
-# Только classifier (быстро, ~5 сек на 447 примеров)
-python3 eval_baseline.py --skip-seq2seq
+# Только classifier + category (без seq2seq, ~5 сек)
+python3 benchmark_nlp.py --skip-seq2seq
 
-# Все примеры (seq2seq ~25 мин на CPU)
-python3 eval_baseline.py
+# Ограничить примеры
+python3 benchmark_nlp.py --limit 50
 ```
 
-Скрипт `eval_baseline.py` автоматически:
+Скрипт `benchmark_nlp.py` автоматически:
 1. Загружает `dataset.jsonl` и делает split по `template_id` (70/15/15, seed=42);
 2. Берёт test split (447 примеров, 322 important + 125 not-important);
 3. Загружает базовые модели из HuggingFace (без fine-tuned весов);
-4. Считает метрики: accuracy, F1, precision, recall, confusion matrix (classifier); ROUGE-1/2/L (seq2seq).
+4. Прогоняет полный pipeline (classifier -> seq2seq -> matcher);
+5. Считает метрики quality, latency и memory.
 
 ### 3.3 Результаты: ImportanceClassifier (base rubert-tiny2)
 
@@ -399,7 +400,7 @@ python3 eval_baseline.py
 
 > **TODO: Переделать.** Результаты предварительные — протестировано ~10 примеров на CPU (~104с/запрос).
 > Нужно: запустить на 30-50 примерах (на GPU ~3-5с/запрос, ~3 мин вместо ~55 мин).
-> Команда: `python3 eval_llm.py --limit 30`
+> Команда: `python3 benchmark_llm.py --limit 30`
 
 Модель: Qwen2.5-3B (GGUF Q4_K_M, ~1.9 GB) через Ollama. Zero-shot — модель не обучалась на датасете. Категории передаются динамически в промпте.
 
@@ -413,7 +414,9 @@ python3 eval_baseline.py
 | subcategory accuracy | ~средняя | Иногда путает подкатегории внутри категории |
 | ROUGE-L (formalize) | TODO | Нужен полный прогон |
 | ROUGE-L (theses) | TODO | Нужен полный прогон |
-| Avg latency (CPU) | ~104 000 ms | ~104с на CPU, ~3-5с на GPU |
+| Avg latency (CPU) | ~119 000 ms | ~119с на CPU, ~3-5с на GPU |
+| Model size | 1.8 GB | GGUF Q4_K_M |
+| Docker RAM | 2.2 GB | Ollama + model loaded |
 
 **Как тестировать:**
 
@@ -422,7 +425,7 @@ python3 eval_baseline.py
 docker compose up llm-service -d
 
 # Оценка на test set (30 примеров, ~55 мин CPU / ~3 мин GPU)
-python3 eval_llm.py --limit 30
+python3 benchmark_llm.py --limit 30
 
 # Один пример (быстрая проверка)
 python3 test_llm.py --seed 42
@@ -440,3 +443,107 @@ python3 test_llm.py --seed 42
 | formalize ROUGE-L | 0.15 | TODO | >0.55 |
 | theses ROUGE-L | 0.17 | TODO | >0.45 |
 | Latency (CPU) | ~10 ms (clf) + 3474 ms (seq2seq) | ~104 000 ms | ~1 000 ms total |
+
+---
+
+## 4. Benchmark: NLP-pipeline (полный пайплайн)
+
+### 4.1 Как воспроизвести
+
+```bash
+cd nlp-service
+
+# Полный бенчмарк (447 test примеров, ~4 мин CPU)
+python3 benchmark_nlp.py
+
+# Только classifier + category (без seq2seq, ~5 сек)
+python3 benchmark_nlp.py --skip-seq2seq
+
+# Ограничить примеры
+python3 benchmark_nlp.py --limit 100
+```
+
+Скрипт `benchmark_nlp.py` прогоняет **полный пайплайн** (classifier -> seq2seq -> category matcher) на test set и измеряет качество, latency и memory.
+
+### 4.2 Результаты: качество (base models, no fine-tune)
+
+**Classifier (447 примеров):**
+
+| Метрика | Значение |
+|---------|----------|
+| Accuracy | 0.4116 |
+| F1-macro | 0.4069 |
+| F1-binary (important) | 0.3538 |
+| Precision-macro | 0.5782 |
+| Recall-macro | 0.5598 |
+
+**CategoryMatcher (72 correctly-predicted important примера):**
+
+| Метрика | Значение |
+|---------|----------|
+| Category accuracy | 0.7500 (54/72) |
+| Subcategory accuracy | 0.5833 (42/72) |
+
+**Seq2seq (72 correctly-predicted important примера):**
+
+| Метрика | Формализация | Тезисы |
+|---------|-------------|--------|
+| ROUGE-1 | 0.1527 | 0.2272 |
+| ROUGE-2 | 0.0323 | 0.0264 |
+| ROUGE-L | 0.1527 | 0.1980 |
+
+### 4.3 Результаты: latency
+
+| Компонент | Среднее | Комментарий |
+|-----------|---------|-------------|
+| Model load total | 17.1 s | Однократно при старте сервиса |
+| — classifier | 3.3 s | rubert-tiny2, 113 MB safetensors |
+| — seq2seq | 2.6 s | rut5, 933 MB safetensors |
+| — matcher | 11.2 s | MiniLM + encode 22 подкатегорий |
+| **Inference classifier** | **10.8 ms** | Один forward pass |
+| **Inference seq2seq** | **3691 ms** | Beam search (num_beams=4), 2 задачи |
+| **Inference matcher** | **73.6 ms** | Encode + cosine similarity |
+| **Full pipeline avg** | **617 ms** | Только 72/447 прошли seq2seq |
+| Pipeline p50 | 7 ms | Большинство — "не важные" (ранний выход) |
+| Pipeline p95 | 4340 ms | Important примеры со всеми 3 моделями |
+
+### 4.4 Результаты: memory
+
+**Размер моделей (safetensors на диске):**
+
+| Модель | Размер |
+|--------|--------|
+| rubert-tiny2 | 113 MB |
+| rut5-base-multitask | 933 MB |
+| MiniLM-L12-v2 | 449 MB |
+| **TOTAL** | **~1495 MB** |
+
+**RAM процесса:** ~1613 MB (все 3 модели загружены, CPU inference).
+
+### 4.5 Интерпретация
+
+- **Classifier baseline слабый** (F1=0.41) — без fine-tune бесполезен. Это нижняя граница.
+- **CategoryMatcher уже работает** — 75% category accuracy и 58% subcategory accuracy zero-shot. MiniLM не требует обучения.
+- **Seq2seq baseline** — ROUGE-L 0.15 для формализации, 0.20 для тезисов. Модель генерирует осмысленный русский текст, но не в медицинском формате.
+- **Latency** — pipeline p50=7ms (быстрый ранний выход для не-жалоб), p95=4.3s (полный пайплайн с beam search).
+
+### 4.6 TODO: LLM Benchmark
+
+> Для сравнения нужен прогон `python3 benchmark_llm.py --limit 30` (Qwen2.5-3B zero-shot).
+> На CPU: ~55 мин. На GPU: ~3 мин.
+> Результаты добавить в таблицу 4.7.
+
+### 4.7 Сводная таблица: NLP vs LLM
+
+> **TODO: заполнить LLM после прогона benchmark_llm.py**
+
+| Метрика | NLP (base) | NLP (цель fine-tune) | LLM (Qwen zero-shot) |
+|---------|-----------|---------------------|---------------------|
+| is_important F1-macro | 0.41 | >0.90 | TODO |
+| category accuracy | 0.75 | >0.75 | TODO |
+| subcategory accuracy | 0.58 | >0.60 | TODO |
+| formalize ROUGE-L | 0.15 | >0.55 | TODO |
+| theses ROUGE-L | 0.20 | >0.45 | TODO |
+| Pipeline p50 latency | 7 ms | ~7 ms | TODO (~104 000 ms CPU) |
+| Pipeline p95 latency | 4 340 ms | ~3 500 ms | TODO |
+| RAM | 1 613 MB | ~1 613 MB | ~4 000 MB |

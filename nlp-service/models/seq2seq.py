@@ -31,7 +31,12 @@ class TextProcessor:
     def __init__(self) -> None:
         self.tokenizer: AutoTokenizer | None = None
         self.model: T5ForConditionalGeneration | None = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         self.is_finetuned = False
 
     def load(self) -> None:
@@ -58,6 +63,10 @@ class TextProcessor:
         )
         self.model.to(self.device)
         self.model.eval()
+        # Сбрасываем max_length из generation_config (rut5 сохраняет 20 по умолчанию),
+        # чтобы не конфликтовал с max_new_tokens при generate()
+        self.model.generation_config.max_length = None
+        self.model.config.max_length = None
         logger.info("TextProcessor ready on %s (finetuned=%s)", self.device, self.is_finetuned)
 
     def _generate(self, prompt: str, max_new_tokens: int = 128) -> str:

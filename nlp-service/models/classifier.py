@@ -33,7 +33,12 @@ class ImportanceClassifier:
     def __init__(self) -> None:
         self.tokenizer: AutoTokenizer | None = None
         self.model: AutoModelForSequenceClassification | None = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
         self.is_finetuned = False
 
     def load(self) -> None:

@@ -1,0 +1,40 @@
+=================================================================
+  NLP-PIPELINE BENCHMARK (base models, no fine-tune)
+=================================================================
+
+--- 1. QUALITY METRICS ---
+  Classifier (447 examples):
+    Accuracy:        0.7450
+    F1-macro:        0.5057
+    F1-binary (imp): 0.8496
+    Precision-macro: 0.8693
+    Recall-macro:    0.5440
+  CategoryMatcher (322 important examples):
+    Category acc:    0.7019 (226/322)
+    Subcategory acc: 0.4658 (150/322)
+  Seq2seq formalize (322 examples):
+    ROUGE-1: 0.5580  ROUGE-2: 0.4673  ROUGE-L: 0.5510
+  Seq2seq theses (322 examples):
+    ROUGE-1: 0.6249  ROUGE-2: 0.4314  ROUGE-L: 0.5977
+
+--- 2. LATENCY ---
+  Model load:     8.9s total
+    classifier:   0.2s
+    seq2seq:      0.3s
+    matcher:      8.3s
+  Inference (per example):
+    classifier:   2.9 ms
+    seq2seq:      2182 ms
+    matcher:      20.6 ms
+    full pipeline:1590 ms
+    p50:          2083 ms
+    p95:          2580 ms
+
+--- 3. MEMORY ---
+  Model disk size:
+    rubert-tiny2: 115 MB
+    rut5-base-multitask: 933 MB
+    MiniLM-L12-v2: 458 MB
+    TOTAL: 1505 MB
+  Process memory:
+    process_rss_mb: 0 MB

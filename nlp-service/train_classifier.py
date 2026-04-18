@@ -184,6 +184,40 @@ def train(args: argparse.Namespace) -> None:
         ignore_mismatched_sizes=True,
     )
 
+    import torch
+    if args.device:
+        chosen = args.device
+    elif torch.cuda.is_available():
+        chosen = "cuda"
+    elif torch.backends.mps.is_available():
+        chosen = "mps"
+    else:
+        chosen = "cpu"
+
+    if chosen == "cuda" and not torch.cuda.is_available():
+        logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
+        chosen = "cpu"
+
+    if chosen == "cuda":
+        device_label = f"GPU ({torch.cuda.get_device_name(0)})"
+        use_fp16 = True
+    elif chosen == "mps":
+        device_label = "MPS (Apple Silicon)"
+        use_fp16 = False
+    else:
+        device_label = "CPU"
+        use_fp16 = False
+    logger.info("Device: %s", device_label)
+
+    # Веса классов обратно пропорциональны частоте: important=0.75, not_important=0.25
+    # → not_important получает вес 3x, чтобы компенсировать дисбаланс датасета
+    n_total = len(train_labels)
+    n_imp = sum(train_labels)
+    n_not = n_total - n_imp
+    class_weights = torch.tensor([n_total / (2 * n_not), n_total / (2 * n_imp)], dtype=torch.float)
+    logger.info("Class weights: not_important=%.3f  important=%.3f",
+                class_weights[0].item(), class_weights[1].item())
+
     training_args = TrainingArguments(
         output_dir=str(OUTPUT_DIR),
         num_train_epochs=args.epochs,
@@ -197,11 +231,22 @@ def train(args: argparse.Namespace) -> None:
         metric_for_best_model="f1",
         logging_steps=20,
         warmup_ratio=0.1,
-        fp16=False,   # CPU-safe; включить если есть GPU
+        fp16=use_fp16,
         report_to="none",
     )
 
-    trainer = Trainer(
+    # Кастомный Trainer с взвешенным CrossEntropy для борьбы с дисбалансом классов
+    class WeightedTrainer(Trainer):
+        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+            labels = inputs.pop("labels")
+            outputs = model(**inputs)
+            logits = outputs.logits
+            loss = torch.nn.functional.cross_entropy(
+                logits, labels, weight=class_weights.to(logits.device)
+            )
+            return (loss, outputs) if return_outputs else loss
+
+    trainer = WeightedTrainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
@@ -241,6 +286,8 @@ def main() -> None:
     parser.add_argument("--max-len",   type=int,   default=256,  help="Max token length (default: 256)")
     parser.add_argument("--val-ratio",  type=float, default=0.15, help="Val template ratio (default: 0.15)")
     parser.add_argument("--test-ratio", type=float, default=0.15, help="Test template ratio (default: 0.15)")
+    parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None,
+                        help="Устройство: cpu, cuda, mps (default: авто)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

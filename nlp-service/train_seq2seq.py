@@ -20,9 +20,9 @@ Split по шаблонам (template_id), не по примерам — пре
   70% шаблонов → train, 15% → val, 15% → test (hold-out).
 
 Гиперпараметры:
-  --epochs     5
+  --epochs     10
   --lr         5e-5   (выше чем для BERT — T5 лучше принимает)
-  --batch      16     (уменьшить до 8 при нехватке памяти)
+  --batch      32     (уменьшить до 16/8 при нехватке памяти)
   --max-src    256
   --max-tgt    128
 
@@ -30,8 +30,8 @@ Split по шаблонам (template_id), не по примерам — пре
   TextProcessor.load() подхватит автоматически.
 
 Время обучения (~5400 пар):
-  CPU: ~60 мин
-  GPU: ~8 мин
+  CPU: ~2 часа
+  GPU: ~15 мин
 """
 
 import argparse
@@ -175,8 +175,9 @@ def make_compute_metrics(tokenizer, use_bertscore: bool = False):
 
         preds, labels = eval_pred
 
-        # Заменяем -100 на pad_token_id для корректного декодирования
+        # Заменяем -100 и любые отрицательные значения на pad_token_id
         labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+        preds = np.where(preds < 0, tokenizer.pad_token_id, preds)
 
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
@@ -247,6 +248,31 @@ def train(args: argparse.Namespace) -> None:
     logger.info("Loading model: %s", BASE_MODEL)
     model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
 
+    import torch
+    if args.device:
+        chosen = args.device
+    elif torch.cuda.is_available():
+        chosen = "cuda"
+    elif torch.backends.mps.is_available():
+        chosen = "mps"
+    else:
+        chosen = "cpu"
+
+    if chosen == "cuda" and not torch.cuda.is_available():
+        logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
+        chosen = "cpu"
+
+    if chosen == "cuda":
+        device_label = f"GPU ({torch.cuda.get_device_name(0)})"
+        use_fp16 = True
+    elif chosen == "mps":
+        device_label = "MPS (Apple Silicon)"
+        use_fp16 = False
+    else:
+        device_label = "CPU"
+        use_fp16 = False
+    logger.info("Device: %s", device_label)
+
     training_args = Seq2SeqTrainingArguments(
         output_dir=str(OUTPUT_DIR),
         num_train_epochs=args.epochs,
@@ -263,7 +289,7 @@ def train(args: argparse.Namespace) -> None:
         generation_num_beams=4,
         logging_steps=50,
         warmup_ratio=0.05,
-        fp16=False,   # CPU-safe; включить если есть GPU
+        fp16=use_fp16,
         report_to="none",
     )
 
@@ -312,13 +338,15 @@ def train(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fine-tune rut5 for formalization + theses")
-    parser.add_argument("--epochs",  type=int,   default=5,    help="Число эпох (default: 5)")
+    parser.add_argument("--epochs",  type=int,   default=10,   help="Число эпох (default: 10)")
     parser.add_argument("--lr",      type=float, default=5e-5, help="Learning rate (default: 5e-5)")
-    parser.add_argument("--batch",   type=int,   default=16,   help="Batch size (default: 16)")
+    parser.add_argument("--batch",   type=int,   default=32,   help="Batch size (default: 32)")
     parser.add_argument("--max-src",    type=int,   default=128,  help="Max source length (default: 128)")
     parser.add_argument("--max-tgt",    type=int,   default=64,   help="Max target length (default: 64)")
     parser.add_argument("--val-ratio",  type=float, default=0.15, help="Val template ratio (default: 0.15)")
     parser.add_argument("--test-ratio", type=float, default=0.15, help="Test template ratio (default: 0.15)")
+    parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None,
+                        help="Устройство: cpu, cuda, mps (default: авто)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

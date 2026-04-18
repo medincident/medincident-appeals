@@ -47,9 +47,16 @@ class CategoryMatcher:
         self._sub_embeddings: np.ndarray | None = None
 
     def load(self) -> None:
-        logger.info("CategoryMatcher: loading %s", BASE_MODEL)
-        self.model = SentenceTransformer(BASE_MODEL, cache_folder=str(CACHE_DIR))
-        logger.info("CategoryMatcher ready")
+        import torch
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif torch.backends.mps.is_available():
+            device = "mps"
+        else:
+            device = "cpu"
+        logger.info("CategoryMatcher: loading %s on %s", BASE_MODEL, device)
+        self.model = SentenceTransformer(BASE_MODEL, cache_folder=str(CACHE_DIR), device=device)
+        logger.info("CategoryMatcher ready on %s", device)
 
     def update_categories(self, categories: list[dict]) -> None:
         """
