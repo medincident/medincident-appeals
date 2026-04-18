@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import {
   ArrowLeft,
   Bot,
@@ -12,7 +13,6 @@ import {
   Clock,
   Loader2,
   MessageSquare,
-  Shield,
   X,
 } from "lucide-react"
 
@@ -249,16 +249,29 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
   )
 }
 
-function AppealCard({ appeal, onViewChat }: { appeal: Appeal; onViewChat: (id: string) => void }) {
+interface AppealCardProps {
+  appeal: Appeal
+  expanded: boolean
+  highlighted?: boolean
+  onToggle: () => void
+  onViewChat: (id: string) => void
+  cardRef?: React.Ref<HTMLDivElement>
+}
+
+function AppealCard({ appeal, expanded, highlighted, onToggle, onViewChat, cardRef }: AppealCardProps) {
   const { label, variant, Icon, spinning } = STATUS_CONFIG[appeal.status]
-  const [expanded, setExpanded] = React.useState(false)
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden transition-shadow hover:shadow-sm">
+    <div
+      ref={cardRef}
+      className={`rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-sm ${
+        highlighted ? "border-primary ring-2 ring-primary/20" : "border-border"
+      }`}
+    >
       {/* Main row */}
       <button
         className="w-full text-left px-4 pt-3.5 pb-3 hover:bg-muted/20 transition-colors"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={onToggle}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -333,10 +346,11 @@ function SectionHeader({ title, count, icon }: { title: string; count: number; i
     <div className="flex items-center gap-2 mb-2">
       <div className="flex items-center gap-1.5">
         {icon}
-        <span className="text-xs font-semibold text-foreground uppercase tracking-wide">{title}</span>
+        <span className="text-xs font-semibold text-foreground uppercase tracking-wide">
+          {title} <span className="text-muted-foreground font-medium normal-case tracking-normal">({count})</span>
+        </span>
       </div>
       <div className="flex-1 h-px bg-border" />
-      <span className="text-[11px] text-muted-foreground font-medium">{count}</span>
     </div>
   )
 }
@@ -344,14 +358,30 @@ function SectionHeader({ title, count, icon }: { title: string; count: number; i
 // ── Page ───────────────────────────────────────────────────────────────────
 
 export default function AppealsPage() {
-  const [appeals, setAppeals]   = React.useState<Appeal[]>(MOCK_APPEALS)
-  const [loading, setLoading]   = React.useState(false)
+  return (
+    <React.Suspense fallback={<div className="min-h-[100dvh] bg-background" />}>
+      <AppealsPageInner />
+    </React.Suspense>
+  )
+}
+
+function AppealsPageInner() {
+  const searchParams = useSearchParams()
+  const selectId     = searchParams.get("select_id")
+
+  const [appeals, setAppeals] = React.useState<Appeal[]>(MOCK_APPEALS)
+  const [loading, setLoading] = React.useState(false)
+  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(() =>
+    selectId ? new Set([selectId]) : new Set()
+  )
   const [chatDialog, setChatDialog] = React.useState<{
     open: boolean
     summary: string
     messages: Message[]
     loadingMsgs: boolean
   }>({ open: false, summary: "", messages: [], loadingMsgs: false })
+
+  const selectedRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
     fetch("/api/appeals")
@@ -362,6 +392,26 @@ export default function AppealsPage() {
       })
       .catch(() => setLoading(false))
   }, [])
+
+  // Scroll to the selected appeal once it's rendered
+  React.useEffect(() => {
+    if (!selectId || loading) return
+    const node = selectedRef.current
+    if (!node) return
+    const timer = window.setTimeout(() => {
+      node.scrollIntoView({ behavior: "smooth", block: "center" })
+    }, 100)
+    return () => window.clearTimeout(timer)
+  }, [selectId, loading, appeals])
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   async function openChat(appealId: string) {
     const appeal = appeals.find((a) => a.id === appealId)
@@ -374,33 +424,41 @@ export default function AppealsPage() {
     }
   }
 
+  function renderCard(a: Appeal) {
+    return (
+      <AppealCard
+        key={a.id}
+        appeal={a}
+        expanded={expandedIds.has(a.id)}
+        highlighted={a.id === selectId}
+        onToggle={() => toggleExpanded(a.id)}
+        onViewChat={openChat}
+        cardRef={a.id === selectId ? selectedRef : undefined}
+      />
+    )
+  }
+
   const inProgress = appeals.filter((a) => IN_PROGRESS_STATUSES.has(a.status))
   const completed  = appeals.filter((a) => !IN_PROGRESS_STATUSES.has(a.status))
 
   return (
-    <div className="min-h-[100dvh] bg-background flex flex-col items-center px-4 py-4">
-      <div className="w-full max-w-lg flex flex-col gap-4">
+    <div className="min-h-[100dvh] bg-background">
+      <div className="mx-auto w-full max-w-xl px-4 py-6 flex flex-col gap-6">
 
-        {/* ── AppBar — floating card ── */}
-        <div className="bg-card border border-border rounded-2xl px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Link href="/">
-              <Button variant="ghost" size="icon" className="h-8 w-8 -ml-1 text-muted-foreground hover:text-foreground">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-            </Link>
-            <div className="h-10 w-10 bg-primary/10 rounded-xl flex items-center justify-center border border-primary/20 shrink-0">
-              <Shield className="h-5 w-5 text-primary" fill="currentColor" />
-            </div>
-            <span className="text-sm font-semibold text-foreground">История обращений</span>
-          </div>
-
-          {!loading && appeals.length > 0 && (
-            <span className="text-xs text-muted-foreground bg-muted rounded-full px-2.5 py-0.5">
-              {appeals.length} шт.
-            </span>
-          )}
-        </div>
+        {/* Back arrow + title — whole row is clickable */}
+        <Link
+          href="/"
+          className="flex items-center gap-2 -ml-2 w-fit rounded-md px-2 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+          aria-label="Назад"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span className="text-lg font-semibold text-foreground">
+            История
+            {!loading && appeals.length > 0 && (
+              <span className="text-muted-foreground font-normal"> ({appeals.length})</span>
+            )}
+          </span>
+        </Link>
 
         {/* ── Content ── */}
         <div className="space-y-5">
@@ -443,9 +501,7 @@ export default function AppealsPage() {
                     icon={<Loader2 className="h-3.5 w-3.5 text-warning animate-spin" />}
                   />
                   <div className="space-y-2">
-                    {inProgress.map((a) => (
-                      <AppealCard key={a.id} appeal={a} onViewChat={openChat} />
-                    ))}
+                    {inProgress.map(renderCard)}
                   </div>
                 </section>
               )}
@@ -459,9 +515,7 @@ export default function AppealsPage() {
                     icon={<CheckCheck className="h-3.5 w-3.5 text-muted-foreground" />}
                   />
                   <div className="space-y-2">
-                    {completed.map((a) => (
-                      <AppealCard key={a.id} appeal={a} onViewChat={openChat} />
-                    ))}
+                    {completed.map(renderCard)}
                   </div>
                 </section>
               )}

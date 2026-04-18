@@ -22,18 +22,11 @@ export async function GET() {
 
   return Response.json({
     id: user?.id ?? "",
-    name: profile?.displayName ?? [profile?.givenName, profile?.familyName].filter(Boolean).join(" "),
-    initials: getInitials(profile?.givenName, profile?.familyName),
-    avatarUrl: profile?.avatarUrl ?? null,
+    firstName: profile?.givenName ?? "",
+    lastName: profile?.familyName ?? "",
     email: email?.email ?? "",
-    loginName: user?.preferredLoginName ?? "",
+    isEmailVerified: email?.isVerified ?? false,
     position: "Пациент",
+    avatarUrl: profile?.avatarUrl ?? undefined,
   });
-}
-
-function getInitials(givenName?: string, familyName?: string): string {
-  return [(givenName ?? "")[0], (familyName ?? "")[0]]
-    .filter(Boolean)
-    .join("")
-    .toUpperCase();
 }
