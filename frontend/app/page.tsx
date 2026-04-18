@@ -19,54 +19,18 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useProfileStore } from "@/lib/stores/profile.store"
-import { useProfileData } from "@/lib/hooks/use-profile"
-
-interface Appeal {
-  id: string
-  summary: string
-  status: string
-}
+import { useProfileData } from "@/domain/profile/hooks"
+import { createAppealAction } from "@/domain/appeals/actions"
+import type { Appeal } from "@/domain/appeals/types"
+import { useAppeals } from "@/domain/appeals/hooks"
+import { useNotifications } from "@/domain/notifications/hooks"
+import { markAllReadAction } from "@/domain/notifications/actions"
+import type { NotificationItem as DomainNotification } from "@/domain/notifications/types"
 
 type SubmissionState =
   | { kind: "idle" }
   | { kind: "success"; appeal: Appeal; fading: boolean }
   | { kind: "error"; message: string }
-
-interface NotificationItem {
-  id: string
-  kind: "new" | "critical" | "done"
-  title: string
-  text: string
-  createdAt: string
-  unread: boolean
-}
-
-const MOCK_NOTIFICATIONS: NotificationItem[] = [
-  {
-    id: "n1",
-    kind: "new",
-    title: "Обращение #1028 принято",
-    text: "Ваше обращение о холодной палате зарегистрировано.",
-    createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-    unread: true,
-  },
-  {
-    id: "n2",
-    kind: "critical",
-    title: "Обращение #1022 отмечено важным",
-    text: "Команда приоритизировала ваш запрос об обезболивающем.",
-    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-    unread: true,
-  },
-  {
-    id: "n3",
-    kind: "done",
-    title: "Обращение #1019 выполнено",
-    text: "Отопление в палате починено. Подтвердите результат.",
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    unread: false,
-  },
-]
 
 const GUIDE_TIPS = [
   {
@@ -175,6 +139,8 @@ export default function MainPage() {
     if (clearTimerRef.current) window.clearTimeout(clearTimerRef.current)
   }, [])
 
+  const { mutate: mutateAppeals } = useAppeals()
+
   async function handleSubmit() {
     if (!appealText.trim() || submitting) return
     const text = appealText.trim()
@@ -182,20 +148,9 @@ export default function MainPage() {
     setSubmission({ kind: "idle" })
 
     try {
-      const appealRes = await fetch("/api/appeals", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      })
-      if (!appealRes.ok) throw new Error(`Сервер вернул ${appealRes.status}`)
-      const appeal: Appeal = await appealRes.json()
-
-      // Fire-and-forget analysis (not shown on the main page)
-      fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      }).catch(() => {})
+      const appeal = await createAppealAction(text)
+      // Refresh cached appeals list so /appeals shows the new entry
+      await mutateAppeals()
 
       setAppealText("")
       setSubmission({ kind: "success", appeal, fading: false })
@@ -411,10 +366,10 @@ function timeAgo(iso: string) {
 
 function NotificationsPopover() {
   const [open, setOpen] = React.useState(false)
-  const [items, setItems] = React.useState<NotificationItem[]>(MOCK_NOTIFICATIONS)
+  const { notifications, mutate } = useNotifications()
   const rootRef = React.useRef<HTMLDivElement>(null)
 
-  const unreadCount = items.filter((i) => i.unread).length
+  const unreadCount = notifications.filter((i) => !i.read).length
 
   React.useEffect(() => {
     if (!open) return
@@ -432,8 +387,9 @@ function NotificationsPopover() {
     }
   }, [open])
 
-  function markAllRead() {
-    setItems((prev) => prev.map((n) => ({ ...n, unread: false })))
+  async function markAllRead() {
+    const updated = await markAllReadAction()
+    await mutate(updated, false)
   }
 
   return (
@@ -466,10 +422,10 @@ function NotificationsPopover() {
           </div>
 
           <div className="max-h-80 overflow-y-auto scrollbar-app">
-            {items.length === 0 ? (
+            {notifications.length === 0 ? (
               <p className="text-xs text-muted-foreground text-center py-8">Уведомлений нет</p>
             ) : (
-              items.map((n) => <NotificationRow key={n.id} notification={n} />)
+              notifications.map((n) => <NotificationRow key={n.id} notification={n} />)
             )}
           </div>
 
@@ -486,14 +442,19 @@ function NotificationsPopover() {
   )
 }
 
-function NotificationRow({ notification }: { notification: NotificationItem }) {
+function NotificationRow({ notification }: { notification: DomainNotification }) {
   const Icon =
-    notification.kind === "critical" ? AlertCircle
-      : notification.kind === "done" ? Check
-      : HelpCircle
+    notification.type === "processed"     ? Check
+    : notification.type === "response"    ? HelpCircle
+    : notification.type === "status_change" ? AlertCircle
+    : HelpCircle
 
-  return (
-    <div className="flex items-start gap-3 px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors">
+  const href = notification.appealId
+    ? `/appeals?select_id=${encodeURIComponent(notification.appealId)}`
+    : null
+
+  const body = (
+    <>
       <div className="h-7 w-7 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
         <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
@@ -502,16 +463,25 @@ function NotificationRow({ notification }: { notification: NotificationItem }) {
           <p className="text-xs font-semibold text-popover-foreground leading-snug flex-1">
             {notification.title}
           </p>
-          {notification.unread && (
+          {!notification.read && (
             <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0 mt-1.5" />
           )}
         </div>
         <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">
-          {notification.text}
+          {notification.description}
         </p>
         <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(notification.createdAt)}</p>
       </div>
-    </div>
+    </>
+  )
+
+  const className =
+    "flex items-start gap-3 px-4 py-3 border-b border-border last:border-b-0 hover:bg-muted/30 transition-colors"
+
+  return href ? (
+    <Link href={href} className={className}>{body}</Link>
+  ) : (
+    <div className={className}>{body}</div>
   )
 }
 

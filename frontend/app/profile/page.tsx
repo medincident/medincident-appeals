@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { useProfileStore } from "@/lib/stores/profile.store"
-import { useProfileData } from "@/lib/hooks/use-profile"
+import { useProfileData } from "@/domain/profile/hooks"
 
 const FULL_PROFILE_URL = "https://zitadel-medincident.ulbwa.bombomeow.ru/profile"
 
