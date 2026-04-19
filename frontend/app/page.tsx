@@ -2,6 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import {
   AlertCircle,
   Bell,
@@ -12,10 +14,13 @@ import {
   Loader2,
   MessageSquare,
   Send,
+  Sparkles,
+  Tag,
   X,
 } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useProfileStore } from "@/lib/stores/profile.store"
@@ -141,6 +146,8 @@ export default function MainPage() {
 
   const { mutate: mutateAppeals } = useAppeals()
 
+  useProcessedAppealsToast()
+
   async function handleSubmit() {
     if (!appealText.trim() || submitting) return
     const text = appealText.trim()
@@ -157,12 +164,12 @@ export default function MainPage() {
 
       fadeTimerRef.current = window.setTimeout(() => {
         setSubmission((s) => (s.kind === "success" ? { ...s, fading: true } : s))
-      }, 3500)
+      }, 5000)
 
       clearTimerRef.current = window.setTimeout(() => {
         setSubmission({ kind: "idle" })
         setTimeout(() => textareaRef.current?.focus(), 50)
-      }, 4000)
+      }, 5500)
     } catch (err) {
       setSubmission({
         kind: "error",
@@ -189,7 +196,7 @@ export default function MainPage() {
             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
           >
             <ClipboardList className="h-4 w-4" />
-            <span className="text-sm font-medium">История</span>
+            <span className="text-sm font-medium">Обращения</span>
           </Link>
 
           <div className="flex items-center gap-3">
@@ -218,16 +225,23 @@ export default function MainPage() {
         </div>
       </header>
 
-      {/* ── Main — vertically centered on all sizes ── */}
-      <main className="flex-1 flex flex-col items-center justify-center w-full max-w-xl mx-auto px-4 pb-10 gap-10">
+      {/* ── Main — mobile: hero centered, input pinned bottom; desktop: all centered ── */}
+      <main className="flex-1 flex flex-col w-full max-w-xl mx-auto px-4 pb-4 sm:pb-10 sm:justify-center sm:gap-8">
 
-        {/* Title */}
-        <h1 className="text-3xl sm:text-5xl font-semibold tracking-tight text-foreground text-center">
-          AI Medincident
-        </h1>
+        {/* Hero — grows on mobile to push input to bottom */}
+        <div className="flex-1 sm:flex-initial flex flex-col items-center justify-center gap-2 text-center py-6 sm:py-0">
+          <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
+            AI Medincident
+          </h1>
+          <p className="text-sm sm:text-base text-muted-foreground max-w-md">
+            {firstName
+              ? `Здравствуйте, ${firstName}. Расскажите, что вас беспокоит.`
+              : "Расскажите, что вас беспокоит."}
+          </p>
+        </div>
 
-        {/* Input / Success block with stable min-height */}
-        <div className="w-full flex flex-col gap-3 min-h-[190px]">
+        {/* Input / Success / Error block with stable min-height */}
+        <div className="w-full flex flex-col gap-3 min-h-[220px]">
 
           {/* Tabs */}
           <div className="flex gap-2 justify-center">
@@ -252,7 +266,7 @@ export default function MainPage() {
 
           {/* Content area */}
           {submission.kind === "success" ? (
-            <SuccessPanel appealId={submission.appeal.id} fading={submission.fading} />
+            <SuccessPanel appeal={submission.appeal} fading={submission.fading} />
           ) : submission.kind === "error" ? (
             <ErrorPanel message={submission.message} onDismiss={resetError} />
           ) : (
@@ -264,8 +278,8 @@ export default function MainPage() {
               submitting={submitting}
             />
           )}
-
         </div>
+
       </main>
     </div>
   )
@@ -280,16 +294,27 @@ interface AppealInputProps {
   submitting: boolean
 }
 
+const MAX_CHARS = 1000
+
 const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
   function AppealInput({ value, onChange, onSubmit, submitting }, ref) {
+    const trimmed    = value.trim()
+    const overLimit  = value.length > MAX_CHARS
+    const canSubmit  = !!trimmed && !submitting && !overLimit
+
     return (
       <div className="flex flex-col gap-2">
-        <div className="rounded-2xl border border-input bg-card overflow-hidden shadow-[0_6px_24px_-12px_rgba(15,23,42,0.15)] transition-shadow duration-300 focus-within:shadow-none">
+        <div
+          className={cn(
+            "section-surface rounded-lg overflow-hidden shadow-[0_2px_8px_-4px_rgba(15,23,42,0.10)] transition-shadow duration-300 focus-within:shadow-none",
+            overLimit && "ring-1 ring-destructive/50",
+          )}
+        >
           <textarea
             ref={ref}
             rows={3}
             className="w-full resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed"
-            placeholder="Опишите ситуацию"
+            placeholder="Расскажите, что произошло…"
             value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => {
@@ -302,21 +327,39 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
             autoFocus
             suppressHydrationWarning
           />
+          <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 text-[10px] text-muted-foreground">
+            <span className="hidden sm:inline">
+              <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Enter</kbd>
+              <span className="mx-1">— отправить,</span>
+              <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Shift+Enter</kbd>
+              <span className="ml-1">— перенос</span>
+            </span>
+            <span className="sm:hidden">Нажмите «Отправить», когда готово</span>
+            <span className={cn("tabular-nums", overLimit && "text-destructive font-medium")}>
+              {value.length}/{MAX_CHARS}
+            </span>
+          </div>
         </div>
         <div className="flex items-center justify-between px-1">
           <GuidePopover />
           <Button
             size="sm"
-            className="h-8 px-5 gap-1.5"
-            disabled={!value.trim() || submitting}
+            className="h-8 px-5 gap-1.5 transition-all duration-200"
+            disabled={!canSubmit}
             onClick={onSubmit}
             suppressHydrationWarning
           >
-            {submitting
-              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              : <Send className="h-3.5 w-3.5" />
-            }
-            Отправить
+            {submitting ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Отправляю…
+              </>
+            ) : (
+              <>
+                <Send className="h-3.5 w-3.5" />
+                Отправить
+              </>
+            )}
           </Button>
         </div>
       </div>
@@ -324,33 +367,142 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
   }
 )
 
-function SuccessPanel({ appealId, fading }: { appealId: string; fading: boolean }) {
+function SuccessPanel({ appeal, fading }: { appeal: Appeal; fading: boolean }) {
+  const firstThesis = appeal.theses[0]
+
   return (
     <div
       className={cn(
-        "flex flex-col items-center text-center py-6 gap-2",
+        "flex flex-col items-center text-center gap-3 py-4",
         fading ? "opacity-0" : "opacity-100 animate-fade-in",
         "transition-opacity duration-500",
       )}
     >
-      <div className="flex items-center gap-1.5 flex-wrap justify-center">
-        <Link
-          href={`/appeals?select_id=${encodeURIComponent(appealId)}`}
-          className="text-sm font-medium text-primary hover:underline"
-        >
-          Ваше обращение
-        </Link>
-        <span className="text-sm text-foreground">направлено в обработку</span>
-        <Check className="h-4 w-4 text-primary" />
+      <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+        <Check className="h-5 w-5 text-primary" strokeWidth={3} />
       </div>
-      <p className="text-xs text-muted-foreground">
-        Спасибо, что помогаете нам стать лучше
-      </p>
+
+      <div className="space-y-1">
+        <p className="text-sm text-foreground">
+          <Link
+            href={`/appeals?select_id=${encodeURIComponent(appeal.id)}`}
+            className="font-medium text-primary hover:underline"
+          >
+            Ваше обращение
+          </Link>{" "}
+          уже в обработке
+        </p>
+        <p className="text-xs text-muted-foreground max-w-sm">
+          Спасибо, что поделились — это помогает нам становиться лучше.
+        </p>
+      </div>
+
+      {(appeal.category || firstThesis) && (
+        <div className="w-full max-w-sm rounded-xl bg-card border border-border/60 px-3.5 py-2.5 text-left space-y-1.5">
+          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+            <Sparkles className="h-3 w-3 text-primary" />
+            ИИ уже проанализировал
+          </p>
+          {appeal.category && (
+            <p className="text-xs text-foreground flex items-center gap-1.5">
+              <Tag className="h-3 w-3 text-primary shrink-0" />
+              <span className="truncate">
+                {appeal.category.name}
+                {appeal.subcategory && (
+                  <span className="text-muted-foreground"> · {appeal.subcategory.name}</span>
+                )}
+              </span>
+            </p>
+          )}
+          {firstThesis && (
+            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+              <span>{firstThesis}</span>
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-// ── Notifications ──────────────────────────────────────────────────────────
+// ── Processed-appeals toast ────────────────────────────────────────────────
+
+const AUTOSHOWN_KEY = "notifications-autoshown-ids"
+
+function readAutoshown(): Set<string> {
+  if (typeof window === "undefined") return new Set()
+  try {
+    const raw = localStorage.getItem(AUTOSHOWN_KEY)
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function writeAutoshown(set: Set<string>) {
+  try {
+    localStorage.setItem(AUTOSHOWN_KEY, JSON.stringify([...set]))
+  } catch {}
+}
+
+function pluralize(n: number, one: string, few: string, many: string) {
+  const mod10  = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  return many
+}
+
+function useProcessedAppealsToast() {
+  const { notifications } = useNotifications()
+  const router            = useRouter()
+  const firedRef          = React.useRef(false)
+
+  React.useEffect(() => {
+    if (firedRef.current) return
+    if (notifications.length === 0) return
+
+    const autoshown = readAutoshown()
+    const fresh = notifications.filter(
+      (n) => n.type === "processed" && !autoshown.has(n.id)
+    )
+    if (fresh.length === 0) return
+
+    firedRef.current = true
+
+    const count = fresh.length
+    const word  = pluralize(count, "обращение", "обращения", "обращений")
+    const verb  = pluralize(count, "Обработано", "Обработаны", "Обработано")
+
+    toast.custom(
+      (t) => (
+        <button
+          type="button"
+          onClick={() => {
+            router.push("/appeals")
+            toast.dismiss(t)
+          }}
+          className="flex items-center gap-3 rounded-lg bg-primary text-primary-foreground px-4 py-3 shadow-lg text-sm font-medium hover:opacity-90 transition-opacity w-[min(92vw,22rem)]"
+        >
+          <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+            <Check className="h-4 w-4" strokeWidth={3} />
+          </div>
+          <span className="flex-1 text-left">
+            {verb} {count} {word}
+          </span>
+          <span className="text-xs text-primary-foreground/70 shrink-0">Открыть →</span>
+        </button>
+      ),
+      { duration: 7000 }
+    )
+
+    fresh.forEach((n) => autoshown.add(n.id))
+    writeAutoshown(autoshown)
+  }, [notifications, router])
+}
+
+// ── Notifications popover ──────────────────────────────────────────────────
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
@@ -494,16 +646,19 @@ function ErrorPanel({ message, onDismiss }: { message: string; onDismiss: () => 
         <div className="h-4 w-4 rounded-full bg-destructive flex items-center justify-center shrink-0">
           <X className="h-2.5 w-2.5 text-white" />
         </div>
-        <p className="text-sm font-medium text-foreground">Ошибка отправки</p>
+        <p className="text-sm font-medium text-foreground">Не получилось отправить</p>
       </div>
-      <p className="text-xs text-muted-foreground font-mono break-all pl-6">
+      <p className="text-xs text-muted-foreground pl-6">
+        Что-то пошло не так на нашей стороне. Попробуйте ещё раз — ваш текст сохранён.
+      </p>
+      <p className="text-[10px] text-muted-foreground/70 font-mono break-all pl-6">
         {message}
       </p>
       <button
         onClick={onDismiss}
         className="text-xs text-destructive hover:underline pl-6 block"
       >
-        Попробуйте снова
+        Попробовать снова
       </button>
     </div>
   )

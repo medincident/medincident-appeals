@@ -62,7 +62,7 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
           <Bot className="h-3 w-3 text-primary" />
         </div>
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-          ИИ-анализ обращения
+          Предварительный анализ обращения
         </span>
       </div>
 
@@ -161,15 +161,10 @@ function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }: Appeal
 
       {expanded && (
         <div className="border-t border-border px-4 py-3 space-y-3 animate-fade-in">
-          <div>
-            <p className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground mb-1.5">
-              Обращение пациента
-            </p>
-            <p className="text-xs text-muted-foreground leading-relaxed border-l-2 border-border pl-3">
-              {appeal.text}
-            </p>
-          </div>
-          <AiInfoBlock appeal={appeal} />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {appeal.text}
+          </p>
+          {!IN_PROGRESS_STATUSES.has(appeal.status) && <AiInfoBlock appeal={appeal} />}
         </div>
       )}
     </div>
