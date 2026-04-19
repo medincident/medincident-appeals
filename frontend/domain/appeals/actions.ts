@@ -2,9 +2,16 @@
 
 import { revalidatePath } from "next/cache"
 
+import {
+  appealsCreated,
+  nlpAnalyzeDuration,
+  nlpAnalyzeTotal,
+  type NlpOutcome,
+} from "@/lib/metrics"
+
 import type { Appeal, NlpAnalyzeResult } from "./types"
 
-const NLP_SERVICE_URL = process.env.NLP_SERVICE_URL ?? "http://ai-medincident-nlp:8000"
+const NLP_SERVICE_URL = process.env.NLP_SERVICE_URL ?? "http://nlp-service:8000"
 
 // ── In-memory mock store (seeded once) ─────────────────────────────────────
 
@@ -65,6 +72,8 @@ const runtime: Appeal[] = [...MOCK_APPEALS]
 // ── NLP integration ────────────────────────────────────────────────────────
 
 async function analyzeWithNlp(text: string): Promise<NlpAnalyzeResult | null> {
+  let outcome: NlpOutcome = "success"
+  const endTimer = nlpAnalyzeDuration.startTimer()
   try {
     const res = await fetch(`${NLP_SERVICE_URL}/analyze`, {
       method: "POST",
@@ -72,11 +81,18 @@ async function analyzeWithNlp(text: string): Promise<NlpAnalyzeResult | null> {
       body: JSON.stringify({ text }),
       signal: AbortSignal.timeout(15_000),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      outcome = "http_error"
+      return null
+    }
     return (await res.json()) as NlpAnalyzeResult
   } catch (err) {
+    outcome = err instanceof DOMException && err.name === "TimeoutError" ? "timeout" : "network_error"
     console.error("[appeals.actions] NLP analyze failed:", err)
     return null
+  } finally {
+    endTimer({ outcome })
+    nlpAnalyzeTotal.inc({ outcome })
   }
 }
 
@@ -112,6 +128,7 @@ export async function createAppealAction(text: string): Promise<Appeal> {
   }
 
   runtime.unshift(appeal)
+  appealsCreated.inc({ is_important: String(appeal.isImportant) })
   revalidatePath("/appeals")
   return appeal
 }

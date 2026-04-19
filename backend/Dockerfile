@@ -1,16 +1,19 @@
-FROM python:3.12-slim
+FROM golang:1.23-alpine AS builder
+WORKDIR /build
 
-WORKDIR /app
-
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-ENV UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    UV_SYSTEM_PYTHON=1
-
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o backend .
 
-CMD ["python", "main.py"]
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates curl
+
+WORKDIR /app
+COPY --from=builder /build/backend /usr/local/bin/backend
+
+ENV HTTP_ADDR=:8080
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/backend"]

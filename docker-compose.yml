@@ -1,3 +1,21 @@
+# -----------------------------------------------------------------
+# Общие настройки логирования для всех сервисов.
+# Ограничение размера — чтобы логи не съели диск при долгой работе.
+# -----------------------------------------------------------------
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "25m"
+    max-file: "3"
+
+# Стандартный healthcheck-ритм: 300s/30s/12/20s — как в zitadel/.
+# start_period переопределяется в сервисах, которым нужно больше времени на старт.
+x-healthcheck: &default-healthcheck
+  interval: 300s
+  timeout: 30s
+  retries: 12
+  start_period: 20s
+
 services:
 
   # ── NATS (JetStream включён флагом -js) ─────────────────────────────────────
@@ -6,14 +24,12 @@ services:
     container_name: ai-medincident-nats
     command: ["-js", "-m", "8222"]   # -js = JetStream, -m = HTTP monitoring port
     restart: unless-stopped
-    # Порты не пробрасываются наружу — NATS доступен только внутри Docker-сети
     healthcheck:
+      <<: *default-healthcheck
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
     networks:
       - ai-medincident
+    logging: *default-logging
 
   # ── Categories Service — публикует категории в NATS KV и завершается ────────
   categories-service:
@@ -27,6 +43,7 @@ services:
         condition: service_healthy
     networks:
       - ai-medincident
+    logging: *default-logging
 
   # ── LLM Service (Ollama + Qwen2.5-3B) ───────────────────────────────────────
   llm-service:
@@ -38,7 +55,7 @@ services:
     environment:
       OLLAMA_MODEL: qwen2.5:3b
     volumes:
-      - ollama_data:/root/.ollama   # модель сохраняется между перезапусками
+      - ollama_data:/root/.ollama
     # Раскомментировать когда появится NVIDIA GPU:
     # deploy:
     #   resources:
@@ -47,33 +64,36 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
-    # Порт 11434 только внутри Docker-сети: http://llm-service:11434
     healthcheck:
+      <<: *default-healthcheck
       test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
       start_period: 180s   # время на скачивание модели (~2GB)
     networks:
       - ai-medincident
+    logging: *default-logging
 
-  # ── AI Backend ───────────────────────────────────────────────────────────────
+  # ── AI Backend (Go + Fiber + NATS KV watcher) ───────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: backend
     restart: unless-stopped
-    # Backend доступен только внутри Docker-сети; frontend обращается к нему по имени сервиса
+    environment:
+      NATS_URL: nats://nats:4222
+      HTTP_ADDR: ":8080"
     depends_on:
       nats:
         condition: service_healthy
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
     networks:
       - ai-medincident
+    logging: *default-logging
 
-  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ───────────────────────────────
-  # container_name намеренно не задан: позволяет горизонтально масштабировать
-  # через `docker compose up --scale nlp-service=N` или deploy.replicas.
+  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ──────────────────────────────
+  # container_name не задан — позволяет `docker compose up --scale nlp-service=N`.
   nlp-service:
     build:
       context: ./nlp-service
@@ -82,25 +102,20 @@ services:
     environment:
       NATS_URL: nats://nats:4222
     volumes:
-      # HF-кэш базовых моделей — в named volume: данные большие и стабильные,
-      # не нужно светить на хосте.
       - nlp_models:/app/models_cache
-      # trained_models — bind mount: тренировка локально → контейнер сразу видит
-      # новые веса без копирования. Обратное тоже работает (тренировка в контейнере).
       - ./nlp-service/trained_models:/app/trained_models
     depends_on:
       nats:
         condition: service_healthy
     healthcheck:
+      <<: *default-healthcheck
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      interval: 15s
-      timeout: 5s
-      retries: 20
       start_period: 120s   # время на загрузку моделей (~368MB)
     networks:
       - ai-medincident
+    logging: *default-logging
 
-  # ── Frontend PROD: multi-stage build, bun native runtime ─────────────────────
+  # ── Frontend PROD: multi-stage build, bun native runtime ────────────────────
   frontend:
     profiles: [prod]
     build:
@@ -124,19 +139,59 @@ services:
       APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
       AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
       NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      # NextAuth использует AUTH_URL для построения redirect_uri
       AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      # Server actions стучатся в NLP напрямую по DNS-имени из docker-compose сети
       NLP_SERVICE_URL: "http://nlp-service:8000"
     networks:
       - ai-medincident
     depends_on:
       - backend
+    logging: *default-logging
+
+  # ── Prometheus: собирает метрики с nlp-service и frontend ───────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: ai-medincident-prometheus
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── Grafana: дашборды. Проксируется фронтендом под /metrics. ────────────────
+  grafana:
+    image: grafana/grafana:11.4.0
+    container_name: ai-medincident-grafana
+    restart: unless-stopped
+    environment:
+      GF_SERVER_ROOT_URL: "%(protocol)s://%(domain)s/metrics/"
+      GF_SERVER_SERVE_FROM_SUB_PATH: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_AUTH_BASIC_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - ai-medincident
+    logging: *default-logging
 
 networks:
   ai-medincident:
     driver: bridge
 
 volumes:
-  ollama_data:   # модель Ollama/Qwen (~1.9GB)
-  nlp_models:    # кэш HuggingFace моделей (~368MB)
+  ollama_data:     # модель Ollama/Qwen (~1.9GB)
+  nlp_models:      # кэш HuggingFace моделей (~368MB)
+  prometheus_data: # TSDB метрик (retention 7 дней)
+  grafana_data:    # настройки Grafana

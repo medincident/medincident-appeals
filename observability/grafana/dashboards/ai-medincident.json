@@ -1,0 +1,283 @@
+{
+  "uid": "ai-medincident-overview",
+  "title": "AI Medincident — Overview",
+  "tags": ["ai-medincident"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "15s",
+  "time": { "from": "now-30m", "to": "now" },
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "panels": [
+    {
+      "type": "row",
+      "id": 1,
+      "title": "NLP pipeline",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 2,
+      "title": "Pipeline duration (p50 / p95)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(nlp_pipeline_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(nlp_pipeline_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 3,
+      "title": "Pipeline requests/min by outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "req/min", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(nlp_pipeline_requests_total[1m])) * 60",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "id": 4,
+      "title": "Classifier predictions (total)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 9 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (label) (nlp_classifier_predictions_total)",
+          "legendFormat": "{{label}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 5,
+      "title": "NLP HTTP requests by path",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (handler) (rate(http_requests_total{job=\"nlp-service\"}[1m]))",
+          "legendFormat": "{{handler}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 10,
+      "title": "Frontend",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 15 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 11,
+      "title": "Frontend → NLP round-trip (p50 / p95)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(frontend_nlp_analyze_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(frontend_nlp_analyze_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 12,
+      "title": "Frontend NLP-calls/min by outcome",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": {
+        "defaults": { "unit": "req/min", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (outcome) (rate(frontend_nlp_analyze_total[1m])) * 60",
+          "legendFormat": "{{outcome}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "id": 13,
+      "title": "Appeals created (by importance)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 24 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "colorMode": "value",
+        "graphMode": "area"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (is_important) (frontend_appeals_created_total)",
+          "legendFormat": "important={{is_important}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 14,
+      "title": "Frontend Node.js event-loop lag",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 24 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "color": { "mode": "palette-classic" } }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frontend_nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "p99"
+        },
+        {
+          "refId": "B",
+          "expr": "frontend_nodejs_eventloop_lag_mean_seconds",
+          "legendFormat": "mean"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "id": 20,
+      "title": "Process (CPU / RAM по сервисам)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 30 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "id": 21,
+      "title": "CPU usage (core-seconds/s)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 31 },
+      "description": "rate(process_cpu_seconds_total) ≈ доля ядра, занятая процессом (1.0 = одно ядро полностью).",
+      "fieldConfig": { "defaults": { "unit": "none", "min": 0 } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(process_cpu_seconds_total{job=\"nlp-service\"}[1m])",
+          "legendFormat": "nlp-service"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(frontend_process_cpu_seconds_total[1m])",
+          "legendFormat": "frontend"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 22,
+      "title": "Resident memory (RSS)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 31 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes{job=\"nlp-service\"}",
+          "legendFormat": "nlp-service"
+        },
+        {
+          "refId": "B",
+          "expr": "frontend_process_resident_memory_bytes",
+          "legendFormat": "frontend"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 23,
+      "title": "Frontend Node heap",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 39 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "frontend_nodejs_heap_size_used_bytes",
+          "legendFormat": "used"
+        },
+        {
+          "refId": "B",
+          "expr": "frontend_nodejs_heap_size_total_bytes",
+          "legendFormat": "total"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "id": 24,
+      "title": "Open file descriptors",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 39 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_open_fds{job=\"nlp-service\"}",
+          "legendFormat": "nlp-service"
+        },
+        {
+          "refId": "B",
+          "expr": "frontend_process_open_fds",
+          "legendFormat": "frontend"
+        }
+      ]
+    }
+  ]
+}
