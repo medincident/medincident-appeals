@@ -306,7 +306,6 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
     const canSubmit  = !!trimmed && !submitting && !overLimit
 
     const voice = useVoiceRecorder({
-      maxDurationMs: 60_000,
       onTranscript: (text) => {
         onChange(value ? `${value.trimEnd()} ${text}` : text)
       },
@@ -316,9 +315,7 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
     })
 
     const recording = voice.status === "recording"
-    const transcribing = voice.status === "transcribing"
-    const micDisabled = submitting || transcribing
-    const micSeconds = Math.floor(voice.elapsedMs / 1000)
+    const micDisabled = submitting
 
     return (
       <div className="flex flex-col gap-2">
@@ -334,7 +331,7 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
             rows={3}
             className="w-full resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed"
             placeholder="Расскажите, что произошло…"
-            value={value}
+            value={recording && voice.interimText ? `${value}${value ? " " : ""}${voice.interimText}` : value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -342,19 +339,15 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
                 onSubmit()
               }
             }}
-            disabled={submitting || transcribing}
+            disabled={submitting}
+            readOnly={recording}
             autoFocus
             suppressHydrationWarning
           />
           <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 text-[10px] text-muted-foreground">
             <span className="hidden sm:inline">
               {recording ? (
-                <span className="text-red-600 font-medium tabular-nums">
-                  ● идёт запись — {String(Math.floor(micSeconds / 60)).padStart(2, "0")}
-                  :{String(micSeconds % 60).padStart(2, "0")}
-                </span>
-              ) : transcribing ? (
-                <span>Распознаю речь…</span>
+                <span className="text-red-600 font-medium">● идёт запись — говорите</span>
               ) : (
                 <>
                   <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Enter</kbd>
@@ -366,11 +359,7 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
               )}
             </span>
             <span className="sm:hidden">
-              {recording
-                ? `Запись — ${String(Math.floor(micSeconds / 60)).padStart(2, "0")}:${String(micSeconds % 60).padStart(2, "0")}`
-                : transcribing
-                  ? "Распознаю речь…"
-                  : "Нажмите «Отправить», когда готово"}
+              {recording ? "Запись — говорите" : "Нажмите «Отправить», когда готово"}
             </span>
             <span className={cn("tabular-nums", overLimit && "text-destructive font-medium")}>
               {value.length}/{MAX_CHARS}
@@ -395,9 +384,7 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
                 title={recording ? "Остановить запись" : "Записать голосом"}
                 suppressHydrationWarning
               >
-                {transcribing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : recording ? (
+                {recording ? (
                   <Square className="h-3.5 w-3.5" />
                 ) : (
                   <Mic className="h-3.5 w-3.5" />

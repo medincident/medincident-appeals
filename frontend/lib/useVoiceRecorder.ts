@@ -1,222 +1,199 @@
 "use client"
 
 /**
- * useVoiceRecorder — хук для push-to-talk записи с микрофона и транскрибации
- * через /api/transcribe (backend whisper.cpp).
+ * useVoiceRecorder — hook на Web Speech API (SpeechRecognition).
+ *
+ * Распознавание идёт прямо в браузере пользователя:
+ *  - Chrome / Edge: встроенный Google STT (cloud), хорошо на русском
+ *  - Safari:        встроенный Apple STT
+ *  - Firefox:       поддержка слабая, хук помечает unsupported
+ *
+ * Плюсы: нет нагрузки на сервер, работает на любом CPU, низкая latency,
+ * interim-результаты (текст появляется по мере речи).
+ * Минусы: требует HTTPS или localhost, в Firefox не работает стабильно.
  *
  * Использование:
- *   const { status, elapsedMs, error, start, stop } = useVoiceRecorder({
- *     maxDurationMs: 60_000,
- *     onTranscript: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
- *   })
+ *   const { status, interimText, error, start, stop, supported } =
+ *     useVoiceRecorder({ onTranscript: (text) => append(text) })
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-export type RecorderStatus = "idle" | "recording" | "transcribing" | "error"
+export type RecorderStatus = "idle" | "recording" | "error"
 
 export type VoiceRecorderError =
   | "unsupported"
   | "permission_denied"
   | "no_device"
-  | "too_short"
-  | "transcribe_failed"
+  | "no_speech"
+  | "aborted"
+  | "network"
   | "unknown"
 
+type SpeechRecognitionAlternative = { transcript: string }
+type SpeechRecognitionResult = {
+  isFinal: boolean
+  0: SpeechRecognitionAlternative
+}
+type SpeechRecognitionEventLike = {
+  resultIndex: number
+  results: ArrayLike<SpeechRecognitionResult>
+}
+type SpeechRecognitionErrorEventLike = { error: string; message?: string }
+
+interface SpeechRecognitionLike {
+  lang: string
+  continuous: boolean
+  interimResults: boolean
+  maxAlternatives: number
+  onstart: (() => void) | null
+  onend: (() => void) | null
+  onerror: ((e: SpeechRecognitionErrorEventLike) => void) | null
+  onresult: ((e: SpeechRecognitionEventLike) => void) | null
+  start(): void
+  stop(): void
+  abort(): void
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike
+
+function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor
+    webkitSpeechRecognition?: SpeechRecognitionCtor
+  }
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
+}
+
 interface Options {
-  /** Максимальная длительность записи в мс. По достижении — автоматический stop. */
-  maxDurationMs?: number
-  /** Колбэк с распознанным текстом после успешной транскрибации. */
+  /** Коллбэк с финальным куском распознанного текста. Может вызываться несколько раз за сессию. */
   onTranscript: (text: string) => void
-  /** Колбэк на ошибку (удобно для toast). */
   onError?: (code: VoiceRecorderError, message: string) => void
+  lang?: string
 }
 
 interface Result {
   status: RecorderStatus
-  elapsedMs: number
+  interimText: string
   error: VoiceRecorderError | null
   supported: boolean
-  start: () => Promise<void>
+  start: () => void
   stop: () => void
 }
 
-function pickMimeType(): string | null {
-  if (typeof MediaRecorder === "undefined") return null
-  const candidates = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-  ]
-  for (const type of candidates) {
-    if (MediaRecorder.isTypeSupported(type)) return type
-  }
-  return null
-}
-
-function isSupported(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof navigator !== "undefined" &&
-    !!navigator.mediaDevices?.getUserMedia &&
-    typeof MediaRecorder !== "undefined" &&
-    pickMimeType() !== null
-  )
-}
-
 export function useVoiceRecorder({
-  maxDurationMs = 60_000,
   onTranscript,
   onError,
+  lang = "ru-RU",
 }: Options): Result {
   const [status, setStatus] = useState<RecorderStatus>("idle")
-  const [elapsedMs, setElapsedMs] = useState(0)
+  const [interimText, setInterimText] = useState("")
   const [error, setError] = useState<VoiceRecorderError | null>(null)
   const [supported, setSupported] = useState(false)
 
-  const recorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const chunksRef = useRef<BlobPart[]>([])
-  const startedAtRef = useRef<number>(0)
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const mimeRef = useRef<string>("")
+  const recogRef = useRef<SpeechRecognitionLike | null>(null)
 
   useEffect(() => {
-    setSupported(isSupported())
+    setSupported(getSpeechRecognitionCtor() !== null)
   }, [])
-
-  const cleanup = useCallback(() => {
-    if (tickRef.current) {
-      clearInterval(tickRef.current)
-      tickRef.current = null
-    }
-    if (autoStopRef.current) {
-      clearTimeout(autoStopRef.current)
-      autoStopRef.current = null
-    }
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    recorderRef.current = null
-    chunksRef.current = []
-  }, [])
-
-  useEffect(() => cleanup, [cleanup])
 
   const fail = useCallback(
     (code: VoiceRecorderError, message: string) => {
       setError(code)
       setStatus("error")
       onError?.(code, message)
-      cleanup()
       setTimeout(() => setStatus("idle"), 1500)
     },
-    [cleanup, onError],
+    [onError],
   )
 
-  const start = useCallback(async () => {
-    if (status !== "idle" && status !== "error") return
+  const start = useCallback(() => {
+    if (recogRef.current) return
     setError(null)
+    setInterimText("")
 
-    if (!isSupported()) {
-      fail("unsupported", "Браузер не поддерживает запись с микрофона")
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) {
+      fail("unsupported", "Браузер не поддерживает распознавание речи")
       return
     }
 
-    const mime = pickMimeType()!
-    mimeRef.current = mime
+    const rec = new Ctor()
+    rec.lang = lang
+    rec.continuous = true
+    rec.interimResults = true
+    rec.maxAlternatives = 1
 
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch (err) {
-      const name = (err as DOMException)?.name
-      if (name === "NotAllowedError" || name === "SecurityError") {
-        fail("permission_denied", "Доступ к микрофону отклонён")
-      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
-        fail("no_device", "Микрофон не найден")
-      } else {
-        fail("unknown", "Не удалось получить доступ к микрофону")
+    rec.onstart = () => setStatus("recording")
+
+    rec.onresult = (e) => {
+      let interim = ""
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const res = e.results[i]
+        const transcript = res[0].transcript
+        if (res.isFinal) {
+          const text = transcript.trim()
+          if (text) onTranscript(text)
+        } else {
+          interim += transcript
+        }
       }
-      return
+      setInterimText(interim)
     }
 
-    streamRef.current = stream
-    const rec = new MediaRecorder(stream, { mimeType: mime })
-    recorderRef.current = rec
-    chunksRef.current = []
-
-    rec.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
-    }
-
-    rec.onstop = async () => {
-      const tracks = streamRef.current?.getTracks()
-      tracks?.forEach((t) => t.stop())
-      streamRef.current = null
-
-      if (tickRef.current) {
-        clearInterval(tickRef.current)
-        tickRef.current = null
+    rec.onerror = (e) => {
+      const map: Record<string, VoiceRecorderError> = {
+        "not-allowed": "permission_denied",
+        "service-not-allowed": "permission_denied",
+        "audio-capture": "no_device",
+        "no-speech": "no_speech",
+        aborted: "aborted",
+        network: "network",
       }
-      if (autoStopRef.current) {
-        clearTimeout(autoStopRef.current)
-        autoStopRef.current = null
+      const code = map[e.error] ?? "unknown"
+      const messages: Record<VoiceRecorderError, string> = {
+        unsupported: "Браузер не поддерживает распознавание речи",
+        permission_denied: "Доступ к микрофону отклонён",
+        no_device: "Микрофон не найден",
+        no_speech: "Речь не распознана — попробуйте ещё раз",
+        aborted: "Запись отменена",
+        network: "Нет соединения с сервисом распознавания",
+        unknown: "Не удалось распознать речь",
       }
-
-      const blob = new Blob(chunksRef.current, { type: mimeRef.current })
-      chunksRef.current = []
-
-      if (blob.size < 1024) {
-        fail("too_short", "Слишком короткая запись")
+      if (code === "aborted") {
+        // Тихий abort (user stopped) — не показываем ошибку
         return
       }
-
-      setStatus("transcribing")
-      try {
-        const form = new FormData()
-        const ext = mimeRef.current.includes("mp4") ? "mp4" : "webm"
-        form.append("audio", blob, `voice.${ext}`)
-        const res = await fetch("/api/transcribe", {
-          method: "POST",
-          body: form,
-          signal: AbortSignal.timeout(45_000),
-        })
-        if (!res.ok) {
-          fail("transcribe_failed", "Распознавание не удалось")
-          return
-        }
-        const data = (await res.json()) as { text?: string }
-        const text = (data.text ?? "").trim()
-        if (text) onTranscript(text)
-        setStatus("idle")
-        setElapsedMs(0)
-      } catch {
-        fail("transcribe_failed", "Распознавание не удалось")
-      }
+      fail(code, messages[code])
     }
 
-    startedAtRef.current = Date.now()
-    setStatus("recording")
-    setElapsedMs(0)
-    rec.start(250)
+    rec.onend = () => {
+      recogRef.current = null
+      setInterimText("")
+      setStatus((prev) => (prev === "error" ? prev : "idle"))
+    }
 
-    tickRef.current = setInterval(() => {
-      setElapsedMs(Date.now() - startedAtRef.current)
-    }, 250)
-
-    autoStopRef.current = setTimeout(() => {
-      if (recorderRef.current?.state === "recording") {
-        recorderRef.current.stop()
-      }
-    }, maxDurationMs)
-  }, [fail, maxDurationMs, onTranscript, status])
+    recogRef.current = rec
+    try {
+      rec.start()
+    } catch (err) {
+      recogRef.current = null
+      fail("unknown", (err as Error).message || "Не удалось запустить запись")
+    }
+  }, [fail, lang, onTranscript])
 
   const stop = useCallback(() => {
-    const rec = recorderRef.current
-    if (rec && rec.state === "recording") rec.stop()
+    recogRef.current?.stop()
   }, [])
 
-  return { status, elapsedMs, error, supported, start, stop }
+  useEffect(
+    () => () => {
+      recogRef.current?.abort()
+      recogRef.current = null
+    },
+    [],
+  )
+
+  return { status, interimText, error, supported, start, stop }
 }
