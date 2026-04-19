@@ -20,6 +20,8 @@ type MetricsState = {
   nlpAnalyzeDuration: Histogram<"outcome">
   nlpAnalyzeTotal: Counter<"outcome">
   appealsCreated: Counter<"is_important">
+  sttRequestDuration: Histogram<"outcome">
+  sttRequestTotal: Counter<"outcome">
 }
 
 const GLOBAL_KEY = Symbol.for("ai-medincident.frontend.metrics")
@@ -54,7 +56,29 @@ function buildMetrics(): MetricsState {
     registers: [registry],
   })
 
-  return { registry, nlpAnalyzeDuration, nlpAnalyzeTotal, appealsCreated }
+  const sttRequestDuration = new Histogram({
+    name: "frontend_stt_request_duration_seconds",
+    help: "Время вызова /api/transcribe (фронтенд→backend STT).",
+    labelNames: ["outcome"] as const,
+    buckets: [0.25, 0.5, 1, 2, 3, 5, 8, 13, 21, 34],
+    registers: [registry],
+  })
+
+  const sttRequestTotal = new Counter({
+    name: "frontend_stt_request_total",
+    help: "Количество запросов на транскрибацию по исходу.",
+    labelNames: ["outcome"] as const,
+    registers: [registry],
+  })
+
+  return {
+    registry,
+    nlpAnalyzeDuration,
+    nlpAnalyzeTotal,
+    appealsCreated,
+    sttRequestDuration,
+    sttRequestTotal,
+  }
 }
 
 const g = globalThis as GlobalWithMetrics
@@ -68,6 +92,17 @@ export const registry = state.registry
 export const nlpAnalyzeDuration = state.nlpAnalyzeDuration
 export const nlpAnalyzeTotal = state.nlpAnalyzeTotal
 export const appealsCreated = state.appealsCreated
+export const sttRequestDuration = state.sttRequestDuration
+export const sttRequestTotal = state.sttRequestTotal
+
+/**
+ * Детализация outcome STT-вызова для labels.
+ * - `success` — backend вернул 200 с текстом
+ * - `http_error` — backend вернул не-2xx
+ * - `timeout` — AbortSignal.timeout сработал
+ * - `network_error` — fetch бросил
+ */
+export type SttOutcome = "success" | "http_error" | "timeout" | "network_error"
 
 /**
  * Детализация outcome NLP-вызова для labels.

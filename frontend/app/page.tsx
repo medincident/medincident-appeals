@@ -13,8 +13,10 @@ import {
   HelpCircle,
   Loader2,
   MessageSquare,
+  Mic,
   Send,
   Sparkles,
+  Square,
   Tag,
   X,
 } from "lucide-react"
@@ -31,6 +33,7 @@ import { useAppeals } from "@/domain/appeals/hooks"
 import { useNotifications } from "@/domain/notifications/hooks"
 import { markAllReadAction } from "@/domain/notifications/actions"
 import type { NotificationItem as DomainNotification } from "@/domain/notifications/types"
+import { useVoiceRecorder } from "@/lib/useVoiceRecorder"
 
 type SubmissionState =
   | { kind: "idle" }
@@ -302,12 +305,28 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
     const overLimit  = value.length > MAX_CHARS
     const canSubmit  = !!trimmed && !submitting && !overLimit
 
+    const voice = useVoiceRecorder({
+      maxDurationMs: 60_000,
+      onTranscript: (text) => {
+        onChange(value ? `${value.trimEnd()} ${text}` : text)
+      },
+      onError: (_code, message) => {
+        toast.error(message)
+      },
+    })
+
+    const recording = voice.status === "recording"
+    const transcribing = voice.status === "transcribing"
+    const micDisabled = submitting || transcribing
+    const micSeconds = Math.floor(voice.elapsedMs / 1000)
+
     return (
       <div className="flex flex-col gap-2">
         <div
           className={cn(
             "section-surface rounded-lg overflow-hidden shadow-[0_2px_8px_-4px_rgba(15,23,42,0.10)] transition-shadow duration-300 focus-within:shadow-none",
             overLimit && "ring-1 ring-destructive/50",
+            recording && "ring-1 ring-red-500/60",
           )}
         >
           <textarea
@@ -323,18 +342,36 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
                 onSubmit()
               }
             }}
-            disabled={submitting}
+            disabled={submitting || transcribing}
             autoFocus
             suppressHydrationWarning
           />
           <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 text-[10px] text-muted-foreground">
             <span className="hidden sm:inline">
-              <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Enter</kbd>
-              <span className="mx-1">— отправить,</span>
-              <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Shift+Enter</kbd>
-              <span className="ml-1">— перенос</span>
+              {recording ? (
+                <span className="text-red-600 font-medium tabular-nums">
+                  ● идёт запись — {String(Math.floor(micSeconds / 60)).padStart(2, "0")}
+                  :{String(micSeconds % 60).padStart(2, "0")}
+                </span>
+              ) : transcribing ? (
+                <span>Распознаю речь…</span>
+              ) : (
+                <>
+                  <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Enter</kbd>
+                  <span className="mx-1">— отправить,</span>
+                  <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Shift+Enter</kbd>
+                  <span className="ml-1">— перенос</span>
+                  {voice.supported && <span className="ml-2">· 🎙 — продиктовать</span>}
+                </>
+              )}
             </span>
-            <span className="sm:hidden">Нажмите «Отправить», когда готово</span>
+            <span className="sm:hidden">
+              {recording
+                ? `Запись — ${String(Math.floor(micSeconds / 60)).padStart(2, "0")}:${String(micSeconds % 60).padStart(2, "0")}`
+                : transcribing
+                  ? "Распознаю речь…"
+                  : "Нажмите «Отправить», когда готово"}
+            </span>
             <span className={cn("tabular-nums", overLimit && "text-destructive font-medium")}>
               {value.length}/{MAX_CHARS}
             </span>
@@ -342,25 +379,51 @@ const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProps>(
         </div>
         <div className="flex items-center justify-between px-1">
           <GuidePopover />
-          <Button
-            size="sm"
-            className="h-8 px-5 gap-1.5 transition-all duration-200"
-            disabled={!canSubmit}
-            onClick={onSubmit}
-            suppressHydrationWarning
-          >
-            {submitting ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Отправляю…
-              </>
-            ) : (
-              <>
-                <Send className="h-3.5 w-3.5" />
-                Отправить
-              </>
+          <div className="flex items-center gap-2">
+            {voice.supported && (
+              <Button
+                type="button"
+                size="sm"
+                variant={recording ? "destructive" : "outline"}
+                className={cn(
+                  "h-8 w-8 p-0 rounded-full transition-all duration-200",
+                  recording && "animate-pulse",
+                )}
+                disabled={micDisabled}
+                onClick={() => (recording ? voice.stop() : voice.start())}
+                aria-label={recording ? "Остановить запись" : "Записать голосом"}
+                title={recording ? "Остановить запись" : "Записать голосом"}
+                suppressHydrationWarning
+              >
+                {transcribing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : recording ? (
+                  <Square className="h-3.5 w-3.5" />
+                ) : (
+                  <Mic className="h-3.5 w-3.5" />
+                )}
+              </Button>
             )}
-          </Button>
+            <Button
+              size="sm"
+              className="h-8 px-5 gap-1.5 transition-all duration-200"
+              disabled={!canSubmit}
+              onClick={onSubmit}
+              suppressHydrationWarning
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Отправляю…
+                </>
+              ) : (
+                <>
+                  <Send className="h-3.5 w-3.5" />
+                  Отправить
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     )
