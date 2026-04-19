@@ -7,7 +7,7 @@ if [ -f "$MARKER" ]; then
   echo "[nlp-service] Models already cached, skipping download"
 else
   echo "[nlp-service] First run — downloading models (~368 MB)..."
-  python3 /app/load.py
+  python3 /app/scripts/load_models.py
   touch "$MARKER"
   echo "[nlp-service] Models cached"
 fi

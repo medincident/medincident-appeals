@@ -1,29 +1,16 @@
 #!/usr/bin/env python3
-"""
-export.py — упаковать nlp-service в zip без весов моделей.
-
-Исключает:
-  models_cache/    — скачанные HuggingFace модели (~370 MB)
-  trained_models/  — fine-tuned веса (создаются после train_*.py)
-  __pycache__/     — байткод Python
-  .venv/           — виртуальное окружение
-
-Результат: nlp-service_export.zip рядом с папкой сервиса.
-
-Использование:
-  python3 export.py
-  python3 export.py --output /tmp/nlp-service.zip
-"""
+"""Упаковка кода nlp-service в zip без весов/кэшей/venv — для передачи архивом."""
 
 import argparse
 import zipfile
 from pathlib import Path
 
-EXCLUDE_DIRS = {"models_cache", "trained_models", "__pycache__", ".venv"}
+from paths import ROOT_DIR, SERVICE_DIR
+
+EXCLUDE_DIRS = {"models_cache", "trained_models", "__pycache__", ".venv", ".pytest_cache"}
 EXCLUDE_SUFFIXES = {".pyc", ".pyo"}
 
-SERVICE_DIR = Path(__file__).parent
-DEFAULT_OUTPUT = SERVICE_DIR.parent / "nlp-service_export.zip"
+DEFAULT_OUTPUT = ROOT_DIR / "nlp-service_export.zip"
 
 
 def should_exclude(path: Path) -> bool:
@@ -35,7 +22,8 @@ def should_exclude(path: Path) -> bool:
 
 def export(output: Path) -> None:
     files = [
-        p for p in SERVICE_DIR.rglob("*")
+        p
+        for p in SERVICE_DIR.rglob("*")
         if p.is_file() and not should_exclude(p.relative_to(SERVICE_DIR))
     ]
 
@@ -51,7 +39,7 @@ def export(output: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export nlp-service to zip without model weights")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT, help="Путь к zip-файлу")
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
 
     print(f"Упаковка {SERVICE_DIR} → {args.output}")

@@ -1,6 +1,6 @@
+# syntax=docker/dockerfile:1.6
 FROM python:3.12-slim
 
-# системные зависимости для torch и sentence-transformers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -10,18 +10,23 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-ENV UV_COMPILE_BYTECODE=1 \
+# PYTHONPATH=/app вместо editable install — не нужен hatchling из PyPI при сборке.
+# .venv/bin в PATH → `uvicorn`/`python3` указывают на venv.
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
+    UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    UV_SYSTEM_PYTHON=1 \
-    # Torch по умолчанию ищет CUDA — отключаем лишние предупреждения
     CUDA_VISIBLE_DEVICES="" \
-    # HuggingFace кэш — монтируем как volume для persistence
     HF_HOME=/app/models_cache \
     TRANSFORMERS_CACHE=/app/models_cache \
     SENTENCE_TRANSFORMERS_HOME=/app/models_cache
 
+# BuildKit cache mount держит скачанные пакеты вне слоёв. При инвалидации
+# этого RUN uv не качает заново (PyTorch+HF → ~5-10 минут miss vs секунды hit).
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
 COPY . .
 
@@ -29,6 +34,4 @@ RUN chmod +x entrypoint.sh
 
 EXPOSE 8000
 
-# Модели скачиваются при первом запуске в volume /app/models_cache
-# При последующих запусках — мгновенный старт (маркер .models_loaded)
 ENTRYPOINT ["./entrypoint.sh"]

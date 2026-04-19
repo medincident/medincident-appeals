@@ -1,33 +1,28 @@
 #!/usr/bin/env python3
-"""
-test_nlp.py — быстрый тест NLP-пайплайна.
-
-Без аргументов: один захардкоженный запрос.
-
-  -m "текст"   свой текст
-  -n 3         3 случайных запроса из dataset.jsonl
-"""
+"""Smoke-test: загружает все три модели и прогоняет N примеров"""
 
 import argparse
 import json
 import random
-import sys
-from pathlib import Path
 
-DATASET_PATH = Path(__file__).parent.parent / "dataset.jsonl"
+from paths import DATASET_PATH, ensure_categories_service_on_path
+
+ensure_categories_service_on_path()
+
 DEFAULT_TEXT = "упал с кровати ночью, никто не пришёл на помощь"
 
 
 def load_models():
-    sys.path.insert(0, str(Path(__file__).parent.parent / "categories-service"))
     from categories import CATEGORIES
-    from models.classifier import ImportanceClassifier
-    from models.seq2seq import TextProcessor
-    from models.similarity import CategoryMatcher
 
-    clf = ImportanceClassifier(); clf.load()
-    proc = TextProcessor(); proc.load()
-    matcher = CategoryMatcher(); matcher.load()
+    from models import CategoryMatcher, ImportanceClassifier, TextProcessor
+
+    clf = ImportanceClassifier()
+    clf.load()
+    proc = TextProcessor()
+    proc.load()
+    matcher = CategoryMatcher()
+    matcher.load()
     matcher.update_categories(CATEGORIES)
     return clf, proc, matcher
 
@@ -71,10 +66,15 @@ def pick_random(n: int) -> list[str]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Тест NLP-пайплайна")
+    parser = argparse.ArgumentParser(description="Smoke test NLP-пайплайна")
     parser.add_argument("-m", "--message", type=str, default=None, help="Свой текст запроса")
-    parser.add_argument("-n", type=int, default=None, metavar="N",
-                        help="Количество случайных запросов из датасета (1+)")
+    parser.add_argument(
+        "-n",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Количество случайных запросов из датасета (1+)",
+    )
     args = parser.parse_args()
 
     print("Загрузка моделей...")

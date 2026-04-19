@@ -15,8 +15,8 @@ complaint text
       │
       ▼
 ┌─────────────────────┐
-│  ImportanceClassifier│  rubert-tiny2 (29MB)
-│  is_important + conf │  ~50ms на CPU
+│ ImportanceClassifier│  rubert-tiny2 (29MB)
+│ is_important + conf │  ~50ms на CPU
 └──────────┬──────────┘
            │ is_important=False → возвращаем ранний ответ
            │ is_important=True  ↓
@@ -54,22 +54,65 @@ formalize()  theses()    match(formalized)
 
 ```
 nlp-service/
-├── main.py               # FastAPI: /analyze, /health, /categories
-├── load.py               # скачать все модели в ./models_cache/
-├── train_classifier.py   # fine-tune rubert-tiny2 на dataset.jsonl
-├── train_seq2seq.py      # fine-tune rut5 на dataset.jsonl
-├── models/
+├── main.py                         # FastAPI: роуты + lifespan
+├── paths.py                        # единые константы путей + bootstrap-хелперы
+├── service/
 │   ├── __init__.py
-│   ├── classifier.py     # ImportanceClassifier
-│   ├── seq2seq.py        # TextProcessor (formalize + theses)
-│   └── similarity.py     # CategoryMatcher (embedding similarity)
-├── models_cache/         # HuggingFace кэш (volume: nlp_models)
-├── trained_models/       # fine-tuned веса (volume: nlp_trained)
-│   ├── classifier/       # создаётся после train_classifier.py
-│   └── seq2seq/          # создаётся после train_seq2seq.py
-├── pyproject.toml
-└── Dockerfile
+│   ├── pipeline.py                 # оркестрация 3 моделей (run_pipeline)
+│   ├── nats_client.py              # connect + watch categories
+│   ├── logging_setup.py            # JSON-логирование
+│   └── metrics.py                  # Prometheus-метрики
+├── models/
+│   ├── __init__.py                 # реэкспорт трёх классов + get_device()
+│   ├── shared.py                   # общий код для train: loader + template split
+│   ├── classifier/
+│   │   ├── __init__.py
+│   │   ├── model.py                # ImportanceClassifier
+│   │   └── train.py                # fine-tune rubert-tiny2
+│   ├── seq2seq/
+│   │   ├── __init__.py
+│   │   ├── model.py                # TextProcessor
+│   │   └── train.py                # fine-tune rut5
+│   └── similarity/
+│       ├── __init__.py
+│       └── model.py                # CategoryMatcher (zero-shot, без train)
+├── scripts/
+│   ├── load_models.py              # качает все 3 базовые модели
+│   ├── run_models.py               # быстрый прогон пайплайна без pytest
+│   ├── compress_trained_models.py  # fp32 → fp16 для trained_models/
+│   └── export_service.py           # упаковка сервиса в zip без весов
+├── benchmarks/
+│   ├── _common.py                  # shared: load_test_set, measure_*, write_result
+│   ├── benchmark.py                # раннер: запускает все 3 per-model bench
+│   ├── classifier_bench.py         # accuracy / F1 / precision / recall
+│   ├── seq2seq_bench.py            # ROUGE для formalize + theses
+│   ├── similarity_bench.py         # top-1 category/subcategory accuracy
+│   └── results/
+│       ├── classifier_{trained,untrained}.txt
+│       ├── seq2seq_{trained,untrained}.txt
+│       ├── similarity_untrained.txt
+│       └── pipeline_{trained,untrained}.txt
+├── tests/
+│   ├── conftest.py                 # моки для FastAPI-клиента
+│   ├── unit/                       # split_by_templates, build_reason
+│   └── integration/                # /analyze, /health, /metrics
+├── models_cache/                   # volume: HF кэш базовых моделей
+├── trained_models/                 # volume: fine-tuned веса
+├── Dockerfile
+├── .dockerignore                   # исключает train.py, shared.py, benchmarks/
+├── entrypoint.sh
+├── pyproject.toml                  # runtime deps + extras (train, dev) + ruff + pytest
+└── README.md
 ```
+
+---
+
+## Принципы архитектуры
+
+1. **`models/` — только код, `models_cache/` и `trained_models/` — только данные.** Volume-маунты не пересекаются с Python-пакетом.
+2. **Каждая модель — самодостаточная папка** (`model.py` + `train.py`). Открыл папку → увидел всё про модель.
+3. **Runtime-образ тонкий.** `.dockerignore` исключает `models/*/train.py`, `models/shared.py`, `benchmarks/` — они нужны только для обучения и оценки.
+4. **Сервис stateless** — готов к горизонтальному масштабированию. `trained_models/` — shared volume, все реплики читают одно и то же.
 
 ---
 
@@ -78,24 +121,25 @@ nlp-service/
 ### Скачать модели
 ```bash
 cd nlp-service
-pip install -e .
-python3 load.py
+uv sync
+python3 scripts/load_models.py
 ```
 
 ### Обучить классификатор важности (рекомендуется)
 ```bash
-python3 train_classifier.py
-# Аргументы: --epochs 3 --lr 2e-5 --batch 32 --max-len 256 --val-split 0.15
+python3 models/classifier/train.py
+# или как модуль:
+python3 -m models.classifier.train
+# Аргументы: --epochs 3 --lr 2e-5 --batch 32 --max-len 256 --val-ratio 0.15
 # CPU: ~20 мин | GPU: ~3 мин
 # Датасет: ../dataset.jsonl (3000 примеров)
 ```
 
 ### Обучить seq2seq (формализация + тезисы)
 ```bash
-python3 train_seq2seq.py
-# Аргументы: --epochs 5 --lr 5e-5 --batch 16 --max-src 256 --max-tgt 128
-# CPU: ~60 мин | GPU: ~8 мин
-# Датасет: ../dataset.jsonl (~2700 важных примеров × 2 задачи = ~5400 пар)
+python3 models/seq2seq/train.py
+# Аргументы: --epochs 10 --lr 5e-5 --batch 32 --max-src 128 --max-tgt 64
+# CPU: ~2 ч | GPU: ~15 мин
 ```
 
 ### Запустить сервис локально
@@ -103,11 +147,19 @@ python3 train_seq2seq.py
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-### Тест
+### Бенчмарки
 ```bash
-curl -X POST http://localhost:8000/analyze \
-  -H "Content-Type: application/json" \
-  -d '{"text": "упал с кровати ночью, никто не пришёл на помощь"}'
+python3 benchmarks/benchmark.py                 # все три модели
+python3 benchmarks/benchmark.py --only classifier
+python3 benchmarks/classifier_bench.py          # только классификатор
+```
+Результаты: `benchmarks/results/<model>_{trained,untrained}.txt`.
+
+### Быстро проверить пайплайн
+```bash
+python3 scripts/run_models.py
+python3 scripts/run_models.py -m "упал с кровати"
+python3 scripts/run_models.py -n 3     # 3 случайных примера из датасета
 ```
 
 ---
@@ -135,6 +187,9 @@ curl -X POST http://localhost:8000/analyze \
 ### GET /health
 Возвращает статус каждой модели: загружена ли, fine-tuned ли, сколько категорий проиндексировано.
 
+### GET /categories
+Текущие категории из NATS-кэша.
+
 ---
 
 ## Интеграция с NATS
@@ -143,6 +198,8 @@ curl -X POST http://localhost:8000/analyze \
 - При старте: читает категории (20 попыток × 3s = 60s окно)
 - Фоновый watcher: автоматически обновляет эмбеддинги при изменении категорий
 - Переменная окружения: `NATS_URL` (default: `nats://nats:4222`)
+
+Вся NATS-логика живёт в `service/nats_client.py`.
 
 ---
 
@@ -153,7 +210,17 @@ curl -X POST http://localhost:8000/analyze \
 - `trained_models/classifier/` существует → загружает fine-tuned
 - Иначе → загружает базовую из HuggingFace с предупреждением
 
-Это позволяет запускать сервис сразу после `load.py` без обучения (базовое качество), и улучшать качество постепенно через train_*.py.
+Это позволяет запускать сервис сразу после `load_models.py` без обучения (базовое качество), и улучшать качество постепенно через `models/*/train.py`.
+
+---
+
+## Горизонтальное масштабирование
+
+Сервис готов к запуску в нескольких репликах:
+
+- **Stateless** — весь контекст либо в NATS (категории), либо в volume-монтах (веса).
+- **Shared volumes** — `nlp_models` и `nlp_trained` монтируются одинаково в каждую реплику (все читают одни и те же веса).
+- Чтобы поднять N реплик в docker-compose: убрать `container_name: ai-medincident-nlp` и добавить `deploy.replicas: N` (или `docker compose up --scale nlp-service=N`).
 
 ---
 

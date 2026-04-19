@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info
+build/
+dist/
+
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Модели качаются entrypoint.sh при первом запуске в смонтированный volume.
+models_cache/
+trained_models/
+
+# Training-only код в runtime-образе не нужен.
+models/*/train.py
+benchmarks/
+
+.git/
+.gitignore
+.vscode/
+.idea/

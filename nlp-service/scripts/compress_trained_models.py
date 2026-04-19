@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
-"""
-compress_models.py — конвертирует trained_models в fp16 (~50% экономии места).
-
-fp16 достаточно для инференса — потери качества минимальны.
-Обучение всегда ведётся в fp32, поэтому это только для деплоя.
-
-Использование:
-  python3 compress_models.py            # конвертирует на месте
-  python3 compress_models.py --dry-run  # только показывает размеры
-"""
+"""Конвертация fine-tuned весов в fp16 (для инференса, ~50% экономии места)."""
 
 import argparse
-import shutil
 from pathlib import Path
 
-TRAINED_DIR = Path(__file__).parent / "trained_models"
+from paths import TRAINED_DIR
+
 MODELS = ["classifier", "seq2seq"]
 
 
@@ -23,7 +14,6 @@ def dir_size_mb(path: Path) -> float:
 
 
 def compress(model_dir: Path, dry_run: bool) -> None:
-    import torch
     from transformers import AutoModelForSequenceClassification, T5ForConditionalGeneration
 
     name = model_dir.name
@@ -31,7 +21,7 @@ def compress(model_dir: Path, dry_run: bool) -> None:
     print(f"\n{name}: {before_mb:.1f} MB → ", end="", flush=True)
 
     if dry_run:
-        print(f"~{before_mb/2:.1f} MB (оценка)")
+        print(f"~{before_mb / 2:.1f} MB (оценка)")
         return
 
     if name == "classifier":
@@ -42,16 +32,16 @@ def compress(model_dir: Path, dry_run: bool) -> None:
         print("пропущено (неизвестный тип)")
         return
 
-    model = model.half()  # fp32 → fp16
+    model = model.half()
     model.save_pretrained(model_dir)
 
     after_mb = dir_size_mb(model_dir)
-    print(f"{after_mb:.1f} MB  (сжатие {(1 - after_mb/before_mb)*100:.0f}%)")
+    print(f"{after_mb:.1f} MB  (сжатие {(1 - after_mb / before_mb) * 100:.0f}%)")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Конвертация trained_models в fp16")
-    parser.add_argument("--dry-run", action="store_true", help="Только показать размеры")
+    parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
     if not TRAINED_DIR.exists():
@@ -72,8 +62,10 @@ def main() -> None:
 
     if not args.dry_run:
         total_after = dir_size_mb(TRAINED_DIR)
-        print(f"\nИтого: {total_before:.1f} MB → {total_after:.1f} MB "
-              f"(−{total_before - total_after:.1f} MB)")
+        print(
+            f"\nИтого: {total_before:.1f} MB → {total_after:.1f} MB "
+            f"(−{total_before - total_after:.1f} MB)"
+        )
 
 
 if __name__ == "__main__":

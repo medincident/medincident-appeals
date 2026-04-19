@@ -72,17 +72,22 @@ services:
       - ai-medincident
 
   # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ───────────────────────────────
+  # container_name намеренно не задан: позволяет горизонтально масштабировать
+  # через `docker compose up --scale nlp-service=N` или deploy.replicas.
   nlp-service:
     build:
       context: ./nlp-service
       dockerfile: Dockerfile
-    container_name: ai-medincident-nlp
     restart: unless-stopped
     environment:
       NATS_URL: nats://nats:4222
     volumes:
-      - nlp_models:/app/models_cache     # модели сохраняются между перезапусками
-      - nlp_trained:/app/trained_models  # fine-tuned модели
+      # HF-кэш базовых моделей — в named volume: данные большие и стабильные,
+      # не нужно светить на хосте.
+      - nlp_models:/app/models_cache
+      # trained_models — bind mount: тренировка локально → контейнер сразу видит
+      # новые веса без копирования. Обратное тоже работает (тренировка в контейнере).
+      - ./nlp-service/trained_models:/app/trained_models
     depends_on:
       nats:
         condition: service_healthy
@@ -133,4 +138,3 @@ networks:
 volumes:
   ollama_data:   # модель Ollama/Qwen (~1.9GB)
   nlp_models:    # кэш HuggingFace моделей (~368MB)
-  nlp_trained:   # fine-tuned веса после train_*.py
