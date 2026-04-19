@@ -126,6 +126,8 @@ services:
       NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
       # NextAuth использует AUTH_URL для построения redirect_uri
       AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      # Server actions стучатся в NLP напрямую по DNS-имени из docker-compose сети
+      NLP_SERVICE_URL: "http://nlp-service:8000"
     networks:
       - ai-medincident
     depends_on:
