@@ -1,12 +1,21 @@
-// ai-medincident-backend — подключается к NATS JetStream KV, кэширует категории
-// и отдаёт их через HTTP. Следит за изменениями ключа, обновляет кэш онлайн.
+// ai-medincident-backend — подключается к NATS JetStream, делает две вещи:
+//
+//  1. Читает категории из KV (bucket "medincident"), следит за обновлениями,
+//     отдаёт через HTTP GET /categories.
+//  2. Потребляет обращения из стрима APPEALS по subject "appeals.submit":
+//     зовёт nlp-service /analyze, публикует результат в "appeals.result.<id>".
+//     ack_explicit + file storage → сообщения не теряются при рестарте.
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -24,6 +33,17 @@ const (
 	natsConnectDelay   = 2 * time.Second
 	kvLoadAttempts     = 20
 	kvLoadDelay        = 2 * time.Second
+
+	// ── JetStream стрим обращений ─────────────────────────────────────────
+	appealsStream      = "APPEALS"
+	appealsSubmitSubj  = "appeals.submit"
+	appealsResultSubj  = "appeals.result.*"
+	appealsDurable     = "appeals-backend"
+	appealsQueue       = "appeals-workers"
+	appealsAckWait     = 60 * time.Second
+	appealsMaxDeliver  = 5
+	appealsMaxAge      = 7 * 24 * time.Hour
+	nlpAnalyzeTimeout  = 30 * time.Second
 )
 
 type category struct {
@@ -182,10 +202,209 @@ func watchKV(ctx context.Context, js nats.JetStreamContext, c *cache) {
 	}
 }
 
+// ── Appeals orchestration ────────────────────────────────────────────────────
+//
+// Формат сообщений в subject "appeals.submit":
+//
+//	{
+//	  "id": "<uuid>",           // генерируется на фронтенде, ключ корреляции
+//	  "text": "<сырой текст>",
+//	  "user_id": "<zitadel id, опц.>",
+//	  "created_at": "<ISO-8601>"
+//	}
+//
+// Ответ публикуется в "appeals.result.<id>" — JSON того же вида, что и
+// AnalyzeResponse от nlp-service + добавлено поле "id".
+
+type appealSubmit struct {
+	ID        string `json:"id"`
+	Text      string `json:"text"`
+	UserID    string `json:"user_id,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type nlpAnalyzeResponse struct {
+	IsImportant         bool              `json:"is_important"`
+	ImportantConfidence float64           `json:"important_confidence,omitempty"`
+	Reason              string            `json:"reason,omitempty"`
+	FormalizedText      string            `json:"formalized_text,omitempty"`
+	Theses              []string          `json:"theses,omitempty"`
+	Category            map[string]string `json:"category,omitempty"`
+	Subcategory         map[string]string `json:"subcategory,omitempty"`
+}
+
+type appealResult struct {
+	ID string `json:"id"`
+	nlpAnalyzeResponse
+}
+
+type appealError struct {
+	ID    string `json:"id"`
+	Error string `json:"error"`
+}
+
+// ensureAppealsStream — идемпотентно создаёт стрим APPEALS с file storage.
+// Если стрим уже есть — ничего не меняет (AddStream вернёт ErrStreamNameAlreadyInUse,
+// что здесь OK — доверяем существующей конфигурации).
+func ensureAppealsStream(js nats.JetStreamContext) error {
+	cfg := &nats.StreamConfig{
+		Name:      appealsStream,
+		Subjects:  []string{appealsSubmitSubj, appealsResultSubj},
+		Storage:   nats.FileStorage, // на диск — переживает рестарт
+		Retention: nats.LimitsPolicy,
+		MaxAge:    appealsMaxAge,
+		Replicas:  1,
+	}
+	if _, err := js.StreamInfo(appealsStream); err == nil {
+		// уже есть — актуализируем subjects/retention на случай апдейта кода
+		if _, err := js.UpdateStream(cfg); err != nil {
+			slog.Warn("UpdateStream failed (non-fatal)", "error", err)
+		}
+		return nil
+	}
+	if _, err := js.AddStream(cfg); err != nil {
+		return fmt.Errorf("AddStream %s: %w", appealsStream, err)
+	}
+	slog.Info("JetStream stream created",
+		"name", appealsStream,
+		"subjects", cfg.Subjects,
+		"storage", "file",
+		"max_age", appealsMaxAge)
+	return nil
+}
+
+// callNLP — POST в nlp-service /analyze с таймаутом.
+func callNLP(ctx context.Context, nlpURL, text string) (*nlpAnalyzeResponse, error) {
+	payload, err := json.Marshal(map[string]any{"text": text})
+	if err != nil {
+		return nil, err
+	}
+	rctx, cancel := context.WithTimeout(ctx, nlpAnalyzeTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(rctx, http.MethodPost, nlpURL+"/analyze",
+		bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("nlp-service %d: %s", resp.StatusCode, string(body))
+	}
+	var out nlpAnalyzeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, fmt.Errorf("decode nlp response: %w", err)
+	}
+	return &out, nil
+}
+
+// handleAppeal — обрабатывает одно сообщение: валидирует, зовёт NLP,
+// публикует результат через JetStream (с ack персистентности) и ack исходника.
+// При ошибке NLP — публикуем ошибку best-effort через core publish и NAK,
+// чтобы JetStream переставил в очередь (до MaxDeliver).
+func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, nlpURL string, m *nats.Msg) {
+	var req appealSubmit
+	if err := json.Unmarshal(m.Data, &req); err != nil {
+		slog.Error("appeals.submit: invalid JSON, dropping", "error", err)
+		_ = m.Term() // невалидное — выкидываем безвозвратно
+		return
+	}
+	if req.ID == "" || req.Text == "" {
+		slog.Error("appeals.submit: missing id/text, dropping", "id", req.ID)
+		_ = m.Term()
+		return
+	}
+
+	md, _ := m.Metadata()
+	var deliveryNum uint64
+	if md != nil {
+		deliveryNum = md.NumDelivered
+	}
+	slog.Info("processing appeal",
+		"id", req.ID,
+		"chars", len(req.Text),
+		"delivery", deliveryNum)
+
+	resultSubj := "appeals.result." + req.ID
+
+	resp, err := callNLP(ctx, nlpURL, req.Text)
+	if err != nil {
+		slog.Error("nlp-service call failed", "id", req.ID, "error", err)
+		// best-effort публикация ошибки, чтобы фронт не висел в таймауте
+		errPayload, _ := json.Marshal(appealError{ID: req.ID, Error: err.Error()})
+		if pubErr := nc.Publish(resultSubj, errPayload); pubErr != nil {
+			slog.Error("publish error result failed", "id", req.ID, "error", pubErr)
+		}
+		_ = m.NakWithDelay(5 * time.Second)
+		return
+	}
+
+	result := appealResult{ID: req.ID, nlpAnalyzeResponse: *resp}
+	payload, err := json.Marshal(result)
+	if err != nil {
+		slog.Error("marshal result failed", "id", req.ID, "error", err)
+		_ = m.Term()
+		return
+	}
+	// js.Publish с MsgId — гарантирует персистентность (ack от JetStream)
+	// и защищает от дублей результата при повторной доставке submit-сообщения.
+	if _, err := js.Publish(resultSubj, payload, nats.MsgId("result-"+req.ID)); err != nil {
+		slog.Error("publish result failed, will retry", "id", req.ID, "error", err)
+		_ = m.NakWithDelay(2 * time.Second)
+		return
+	}
+	if err := m.Ack(); err != nil {
+		slog.Warn("ack failed", "id", req.ID, "error", err)
+		return
+	}
+	slog.Info("appeal processed",
+		"id", req.ID,
+		"is_important", resp.IsImportant,
+		"category", resp.Category["name"])
+}
+
+// startAppealsConsumer — запускает durable queue-subscribe на appeals.submit.
+// QueueSubscribe + Durable = пул воркеров, переживающий рестарты.
+func startAppealsConsumer(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, nlpURL string) (*nats.Subscription, error) {
+	sub, err := js.QueueSubscribe(
+		appealsSubmitSubj,
+		appealsQueue,
+		func(m *nats.Msg) { handleAppeal(ctx, nc, js, nlpURL, m) },
+		nats.BindStream(appealsStream),
+		nats.Durable(appealsDurable),
+		nats.ManualAck(),
+		nats.AckWait(appealsAckWait),
+		nats.MaxDeliver(appealsMaxDeliver),
+		nats.DeliverAll(), // с самого начала, durable помнит позицию
+	)
+	if err != nil {
+		return nil, fmt.Errorf("QueueSubscribe %s: %w", appealsSubmitSubj, err)
+	}
+	slog.Info("appeals consumer started",
+		"stream", appealsStream,
+		"subject", appealsSubmitSubj,
+		"durable", appealsDurable,
+		"queue", appealsQueue,
+		"ack_wait", appealsAckWait,
+		"max_deliver", appealsMaxDeliver)
+	return sub, nil
+}
+
+// ── main ─────────────────────────────────────────────────────────────────────
+
 func main() {
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
 		natsURL = "nats://nats:4222"
+	}
+	nlpURL := os.Getenv("NLP_SERVICE_URL")
+	if nlpURL == "" {
+		nlpURL = "http://nlp-service:8000"
 	}
 	httpAddr := os.Getenv("HTTP_ADDR")
 	if httpAddr == "" {
@@ -206,12 +425,22 @@ func main() {
 		log.Fatalf("cannot access JetStream: %v", err)
 	}
 
+	// Categories cache (KV) — как раньше.
 	c := &cache{}
 	loadWithRetry(js, c)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go watchKV(ctx, js, c)
+
+	// Appeals: стрим + consumer.
+	if err := ensureAppealsStream(js); err != nil {
+		log.Fatalf("ensure appeals stream: %v", err)
+	}
+	appealsSub, err := startAppealsConsumer(ctx, nc, js, nlpURL)
+	if err != nil {
+		log.Fatalf("start appeals consumer: %v", err)
+	}
 
 	app := fiber.New(fiber.Config{
 		AppName:               "ai-medincident-backend",
@@ -223,6 +452,7 @@ func main() {
 			"status":            "ok",
 			"categories_cached": c.len(),
 			"nats_connected":    nc.IsConnected(),
+			"appeals_consumer":  appealsSub.IsValid(),
 		})
 	})
 
@@ -237,10 +467,12 @@ func main() {
 		<-shutdown
 		slog.Info("shutdown signal received")
 		cancel()
+		// Drain подписки — даёт текущим in-flight сообщениям дойти до ack.
+		_ = appealsSub.Drain()
 		_ = app.Shutdown()
 	}()
 
-	slog.Info("HTTP server listening", "addr", httpAddr)
+	slog.Info("HTTP server listening", "addr", httpAddr, "nlp_url", nlpURL)
 	if err := app.Listen(httpAddr); err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
 	}

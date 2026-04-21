@@ -1,5 +1,7 @@
 "use server"
 
+import { randomUUID } from "node:crypto"
+
 import { revalidatePath } from "next/cache"
 
 import {
@@ -8,10 +10,17 @@ import {
   nlpAnalyzeTotal,
   type NlpOutcome,
 } from "@/lib/metrics"
+import {
+  APPEALS_RESULT_SUBJECT_PREFIX,
+  APPEALS_SUBMIT_SUBJECT,
+  getNats,
+  jsonCodec,
+} from "@/lib/nats"
 
 import type { Appeal, NlpAnalyzeResult } from "./types"
 
-const NLP_SERVICE_URL = process.env.NLP_SERVICE_URL ?? "http://nlp-service:8000"
+// Сколько ждём ответа от бэкенда AI. p95 NLP ≈ 4.3s, берём с запасом.
+const APPEAL_REPLY_TIMEOUT_MS = 20_000
 
 // ── In-memory mock store (seeded once) ─────────────────────────────────────
 
@@ -72,26 +81,105 @@ const MOCK_APPEALS: Appeal[] = [
 // Next.js server process. Good enough for a demo/mock.
 const runtime: Appeal[] = [...MOCK_APPEALS]
 
-// ── NLP integration ────────────────────────────────────────────────────────
+// ── Payload shape for NATS messages (совпадает с backend/main.go) ──────────
 
-async function analyzeWithNlp(text: string): Promise<NlpAnalyzeResult | null> {
+interface AppealSubmitPayload {
+  id: string
+  text: string
+  created_at: string
+  user_id?: string
+}
+
+interface AppealResultPayload {
+  id: string
+  is_important?: boolean
+  important_confidence?: number
+  reason?: string
+  formalized_text?: string
+  theses?: string[]
+  category?: { id: string; name: string } | null
+  subcategory?: { id: string; name: string } | null
+  error?: string
+}
+
+// ── NATS integration ───────────────────────────────────────────────────────
+
+/**
+ * Отправляет текст в backend ИИ через NATS JetStream и ждёт результат.
+ *
+ * Гарантии:
+ *   - js.publish возвращает ack только после записи на диск → submit не
+ *     пропадёт при рестарте NATS/бэкенда;
+ *   - durable consumer в бэкенде переживает рестарт — необработанные
+ *     сообщения доставятся снова;
+ *   - результат публикуется с MsgId (дедупликация при повторных доставках).
+ *
+ * Таймаут здесь только на ожидание ответа фронтендом. Если он истёк — submit
+ * всё равно в JetStream, и бэкенд его обработает, просто этот запрос не увидит
+ * результат (у него будет status: "processing").
+ */
+async function analyzeViaNats(
+  id: string,
+  text: string,
+): Promise<NlpAnalyzeResult | null> {
   let outcome: NlpOutcome = "success"
   const endTimer = nlpAnalyzeDuration.startTimer()
   try {
-    const res = await fetch(`${NLP_SERVICE_URL}/analyze`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
-      signal: AbortSignal.timeout(15_000),
-    })
-    if (!res.ok) {
-      outcome = "http_error"
-      return null
+    const { nc, js } = await getNats()
+
+    // Подписываемся ДО публикации, иначе можем пропустить быстрый ответ.
+    // max: 1 — автоматически закрываем после первого сообщения.
+    const sub = nc.subscribe(`${APPEALS_RESULT_SUBJECT_PREFIX}${id}`, { max: 1 })
+    // flush гарантирует, что сервер увидел нашу SUB до PUB.
+    await nc.flush()
+
+    try {
+      const payload: AppealSubmitPayload = {
+        id,
+        text,
+        created_at: new Date().toISOString(),
+      }
+      // JetStream publish с MsgId — защищает от дублей submit при retry сети.
+      await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
+        msgID: `submit-${id}`,
+        timeout: 5_000,
+      })
+
+      const msg = await Promise.race([
+        (async () => {
+          for await (const m of sub) return m
+          throw new Error("subscription closed before reply")
+        })(),
+        new Promise<never>((_, rej) =>
+          setTimeout(
+            () => rej(new Error("timeout waiting for appeal result")),
+            APPEAL_REPLY_TIMEOUT_MS,
+          ),
+        ),
+      ])
+
+      const data = jsonCodec.decode(msg.data) as AppealResultPayload
+      if (data.error) {
+        outcome = "http_error"
+        console.error("[appeals.actions] NLP returned error:", data.error)
+        return null
+      }
+      return {
+        is_important: data.is_important ?? true,
+        important_confidence: data.important_confidence,
+        reason: data.reason,
+        formalized_text: data.formalized_text,
+        theses: data.theses,
+        category: data.category ?? null,
+        subcategory: data.subcategory ?? null,
+      }
+    } finally {
+      sub.unsubscribe()
     }
-    return (await res.json()) as NlpAnalyzeResult
   } catch (err) {
-    outcome = err instanceof DOMException && err.name === "TimeoutError" ? "timeout" : "network_error"
-    console.error("[appeals.actions] NLP analyze failed:", err)
+    const msg = err instanceof Error ? err.message : String(err)
+    outcome = msg.includes("timeout") ? "timeout" : "network_error"
+    console.error("[appeals.actions] NATS analyze failed:", err)
     return null
   } finally {
     endTimer({ outcome })
@@ -115,10 +203,11 @@ export async function createAppealAction(text: string): Promise<Appeal> {
   const trimmed = text.trim()
   if (!trimmed) throw new Error("Текст обращения не может быть пустым")
 
-  const nlp = await analyzeWithNlp(trimmed)
+  const id = `a-${randomUUID()}`
+  const nlp = await analyzeViaNats(id, trimmed)
 
   const appeal: Appeal = {
-    id: `a-${Date.now()}`,
+    id,
     text: trimmed,
     summary: makeSummary(trimmed),
     formalizedText: nlp?.formalized_text?.trim() || trimmed,

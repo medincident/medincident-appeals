@@ -18,12 +18,19 @@ x-healthcheck: &default-healthcheck
 
 services:
 
-  # ── NATS (JetStream включён флагом -js) ─────────────────────────────────────
+  # ── NATS (JetStream с файловым хранилищем на диске) ─────────────────────────
   nats:
     image: nats:2.10-alpine
     container_name: ai-medincident-nats
-    command: ["-js", "-m", "8222"]   # -js = JetStream, -m = HTTP monitoring port
+    # -js      = JetStream
+    # -sd      = storage dir для JetStream (persistent volume)
+    # -m 8222  = HTTP monitoring
+    command: ["-js", "-sd", "/data", "-m", "8222"]
     restart: unless-stopped
+    ports:
+      - "4222:4222"   # чтобы dev-фронтенд вне compose мог коннектиться
+    volumes:
+      - nats_data:/data
     healthcheck:
       <<: *default-healthcheck
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
@@ -31,13 +38,16 @@ services:
       - ai-medincident
     logging: *default-logging
 
-  # ── Categories Service — публикует категории в NATS KV и завершается ────────
+  # ── Categories Service — публикует категории в NATS KV и остаётся в живых ──
+  # Долгоживущий сервис: публикует на старте, ре-публикует на каждый reconnect
+  # к NATS. Нужно чтобы переживать рестарт NATS / пересоздание его volume —
+  # иначе nlp-service будет крашиться на "stream not found".
   categories-service:
     build:
       context: ./categories-service
       dockerfile: Dockerfile
     container_name: ai-medincident-categories
-    restart: on-failure   # повторяет только при ошибке, не при чистом выходе
+    restart: unless-stopped
     depends_on:
       nats:
         condition: service_healthy
@@ -72,7 +82,10 @@ services:
       - ai-medincident
     logging: *default-logging
 
-  # ── AI Backend (Go + Fiber + NATS KV watcher) ───────────────────────────────
+  # ── AI Backend (Go + Fiber + NATS KV watcher + JetStream consumer) ──────────
+  # Потребляет appeals.submit из JetStream, зовёт nlp-service, публикует
+  # результат в appeals.result.<id>. Если падает — JetStream доставит сообщение
+  # снова при старте (ack_explicit, file storage).
   backend:
     build:
       context: ./backend
@@ -81,6 +94,7 @@ services:
     restart: unless-stopped
     environment:
       NATS_URL: nats://nats:4222
+      NLP_SERVICE_URL: http://nlp-service:8000
       HTTP_ADDR: ":8080"
     depends_on:
       nats:
@@ -140,7 +154,7 @@ services:
       AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
       NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
       AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      NLP_SERVICE_URL: "http://nlp-service:8000"
+      NATS_URL: "nats://nats:4222"
     networks:
       - ai-medincident
     depends_on:
@@ -191,6 +205,7 @@ networks:
     driver: bridge
 
 volumes:
+  nats_data:       # JetStream storage — чтобы appeals не терялись при рестарте
   ollama_data:     # модель Ollama/Qwen (~1.9GB)
   nlp_models:      # кэш HuggingFace моделей (~368MB)
   prometheus_data: # TSDB метрик (retention 7 дней)
