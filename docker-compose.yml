@@ -82,10 +82,31 @@ services:
       - ai-medincident
     logging: *default-logging
 
-  # ── AI Backend (Go + Fiber + NATS KV watcher + JetStream consumer) ──────────
-  # Потребляет appeals.submit из JetStream, зовёт nlp-service, публикует
-  # результат в appeals.result.<id>. Если падает — JetStream доставит сообщение
-  # снова при старте (ack_explicit, file storage).
+  # ── Postgres для бэкенда (хранилище обращений) ──────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-medincident-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medincident
+      POSTGRES_PASSWORD: medincident
+      POSTGRES_DB: medincident
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medincident -d medincident"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── AI Backend (Go + Fiber + NATS KV + JetStream consumer + Postgres) ───────
+  # Потребляет appeals.submit из JetStream, зовёт nlp-service, сохраняет
+  # результат в Postgres и публикует в appeals.result.<id>. Также отдаёт
+  # REST /users/:userId/appeals с JWT-проверкой против Zitadel.
   backend:
     build:
       context: ./backend
@@ -96,8 +117,12 @@ services:
       NATS_URL: nats://nats:4222
       NLP_SERVICE_URL: http://nlp-service:8000
       HTTP_ADDR: ":8080"
+      DATABASE_URL: postgres://medincident:medincident@postgres:5432/medincident?sslmode=disable
+      ZITADEL_ISSUER: https://zitadel-medincident.ulbwa.bombomeow.ru
     depends_on:
       nats:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       <<: *default-healthcheck
@@ -155,6 +180,7 @@ services:
       NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
       AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
       NATS_URL: "nats://nats:4222"
+      BACKEND_URL: "http://backend:8080"
     networks:
       - ai-medincident
     depends_on:
@@ -205,6 +231,7 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:   # appeals + любые будущие таблицы backend'а
   nats_data:       # JetStream storage — чтобы appeals не терялись при рестарте
   ollama_data:     # модель Ollama/Qwen (~1.9GB)
   nlp_models:      # кэш HuggingFace моделей (~368MB)

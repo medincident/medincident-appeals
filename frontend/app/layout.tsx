@@ -1,6 +1,9 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Providers } from "./providers";
+import { InstallBanner } from "./_components/InstallBanner";
+import { NetworkStatus } from "./_components/NetworkStatus";
+import { ServiceWorkerRegistrar } from "./_components/ServiceWorkerRegistrar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,6 +19,30 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "AI MedIncident",
   description: "AI MedIncident Platform",
+  applicationName: "AI MedIncident",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "MedIncident",
+    statusBarStyle: "default",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/shield.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: [{ url: "/icons/shield.svg", type: "image/svg+xml" }],
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#7ACB2F",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -30,7 +57,12 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <InstallBanner />
+          <NetworkStatus />
+          <ServiceWorkerRegistrar />
+        </Providers>
       </body>
     </html>
   );

@@ -1,10 +1,6 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+# Локальный бинарь от `go build` без -o
+/backend
 
-# Virtual environments
-.venv
+# Редакторское
+.vscode/
+.idea/

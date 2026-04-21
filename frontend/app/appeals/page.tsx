@@ -8,6 +8,7 @@ import {
   CheckCheck,
   Loader2,
   MessageSquare,
+  SearchX,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -17,6 +18,7 @@ import { useAppeals } from "@/domain/appeals/hooks"
 import type { Appeal } from "@/domain/appeals/types"
 
 import { AppealCard, IN_PROGRESS_STATUSES } from "./_components/AppealCard"
+import { AppealsToolbar, type StatusFilter } from "./_components/AppealsToolbar"
 import { SectionHeader } from "./_components/SectionHeader"
 
 export default function AppealsPage() {
@@ -31,7 +33,25 @@ function AppealsPageInner() {
   const searchParams = useSearchParams()
   const selectId     = searchParams.get("select_id")
 
-  const { appeals, isLoading } = useAppeals()
+  const [searchInput, setSearchInput]   = React.useState("")
+  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("")
+
+  // Debounce на 300мс — чтобы не гонять запросы на каждую нажатую клавишу.
+  const [searchQuery, setSearchQuery] = React.useState("")
+  React.useEffect(() => {
+    const t = window.setTimeout(() => setSearchQuery(searchInput.trim()), 300)
+    return () => window.clearTimeout(t)
+  }, [searchInput])
+
+  const { appeals: rawAppeals, isLoading, isValidating } = useAppeals({
+    search: searchQuery || undefined,
+  })
+
+  const appeals = React.useMemo(
+    () => (statusFilter ? rawAppeals.filter((a) => a.status === statusFilter) : rawAppeals),
+    [rawAppeals, statusFilter],
+  )
+
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(() =>
     selectId ? new Set([selectId]) : new Set()
   )
@@ -73,11 +93,13 @@ function AppealsPageInner() {
   const inProgress = appeals.filter((a) => IN_PROGRESS_STATUSES.has(a.status))
   const completed  = appeals.filter((a) => !IN_PROGRESS_STATUSES.has(a.status))
 
+  const hasFilters = !!searchQuery || !!statusFilter
+  const empty      = !isLoading && appeals.length === 0
+
   return (
     <div className="min-h-[100dvh] bg-background">
-      <div className="mx-auto w-full max-w-xl px-4 py-6 flex flex-col gap-6">
+      <div className="mx-auto w-full max-w-xl px-4 py-6 flex flex-col gap-5">
 
-        {/* Back arrow + title */}
         <Link
           href="/"
           className="flex items-center gap-2 -ml-2 w-fit rounded-md px-2 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
@@ -86,11 +108,21 @@ function AppealsPageInner() {
           <ArrowLeft className="h-4 w-4" />
           <span className="text-lg font-semibold text-foreground">
             Обращения
-            {!isLoading && appeals.length > 0 && (
+            {!isLoading && !hasFilters && appeals.length > 0 && (
+              <span className="text-muted-foreground font-normal"> ({appeals.length})</span>
+            )}
+            {hasFilters && !isLoading && (
               <span className="text-muted-foreground font-normal"> ({appeals.length})</span>
             )}
           </span>
         </Link>
+
+        <AppealsToolbar
+          search={searchInput}
+          onSearchChange={setSearchInput}
+          statusFilter={statusFilter}
+          onStatusChange={setStatusFilter}
+        />
 
         <div className="space-y-5">
 
@@ -106,8 +138,31 @@ function AppealsPageInner() {
                 </div>
               ))}
             </div>
-          ) : appeals.length === 0 ? (
-            <div className="rounded-2xl border border-border bg-card flex flex-col items-center justify-center py-14 gap-3">
+          ) : empty && hasFilters ? (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
+              <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center">
+                <SearchX className="h-6 w-6 text-muted-foreground/50" />
+              </div>
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">Ничего не найдено</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Попробуйте изменить запрос или сбросить фильтры
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs mt-1"
+                onClick={() => {
+                  setSearchInput("")
+                  setStatusFilter("")
+                }}
+              >
+                Сбросить
+              </Button>
+            </div>
+          ) : empty ? (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
               <div className="h-12 w-12 rounded-2xl bg-muted flex items-center justify-center">
                 <MessageSquare className="h-6 w-6 text-muted-foreground/50" />
               </div>
@@ -123,6 +178,12 @@ function AppealsPageInner() {
             </div>
           ) : (
             <>
+              {isValidating && (
+                <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 px-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Обновляю…
+                </div>
+              )}
               {inProgress.length > 0 && (
                 <section>
                   <SectionHeader

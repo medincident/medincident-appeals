@@ -6,12 +6,14 @@ import {
   AlertCircle,
   ClipboardList,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import { useProfileStore } from "@/lib/stores/profile.store"
 import { useProfileData } from "@/domain/profile/hooks"
 import { createAppealAction } from "@/domain/appeals/actions"
 import type { Appeal } from "@/domain/appeals/types"
 import { useAppeals } from "@/domain/appeals/hooks"
+import { enqueueAppeal } from "@/lib/offline/queue"
 
 import { AppealInput } from "./_components/AppealInput"
 import { ErrorPanel } from "./_components/ErrorPanel"
@@ -59,6 +61,26 @@ export default function MainPage() {
     const text = appealText.trim()
     setSubmitting(true)
     setSubmission({ kind: "idle" })
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      try {
+        await enqueueAppeal(text)
+        setAppealText("")
+        setSubmission({ kind: "idle" })
+        toast.success("Сохранено локально", {
+          description: "Отправим автоматически, когда появится интернет.",
+        })
+        setTimeout(() => textareaRef.current?.focus(), 50)
+      } catch (err) {
+        setSubmission({
+          kind: "error",
+          message: err instanceof Error ? err.message : "Не удалось сохранить офлайн",
+        })
+      } finally {
+        setSubmitting(false)
+      }
+      return
+    }
 
     try {
       const appeal = await createAppealAction(text)

@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto"
 
 import { revalidatePath } from "next/cache"
 
+import { auth } from "@/services/auth/auth"
 import {
   appealsCreated,
   nlpAnalyzeDuration,
@@ -17,77 +18,42 @@ import {
   jsonCodec,
 } from "@/lib/nats"
 
-import type { Appeal, NlpAnalyzeResult } from "./types"
+import type { Appeal, AppealFilters, NlpAnalyzeResult } from "./types"
 
-// Сколько ждём ответа от бэкенда AI. p95 NLP ≈ 4.3s, берём с запасом.
 const APPEAL_REPLY_TIMEOUT_MS = 20_000
 
-// ── In-memory mock store (seeded once) ─────────────────────────────────────
+// BACKEND_URL обязателен — фронт ходит в бэкенд за REST-списком обращений.
+// В compose прокинут как http://backend:8080, для локального dev — либо тот же
+// хост (если dev запущен в той же сети), либо http://localhost:8081 через
+// проброшенный порт.
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://backend:8080"
 
-const MOCK_APPEALS: Appeal[] = [
-  {
-    id: "a-001",
-    text: "Уже три дня болит живот, особенно после еды. Сначала думала пройдёт, но становится хуже.",
-    summary: "Боли в животе после еды, 3 дня",
-    formalizedText:
-      "Пациент предъявляет жалобы на абдоминальный болевой синдром продолжительностью 72 часа, усиливающийся в постпрандиальный период. Отмечается отрицательная динамика состояния.",
-    theses: ["Боли в животе 3 дня", "Усиление после приёма пищи", "Прогрессирующий характер"],
-    category:    { id: "cat_2", name: "Жалобы на здоровье" },
-    subcategory: { id: "sub_4", name: "Болевой синдром (ЖКТ)" },
-    isImportant: true,
-    importantConfidence: 0.94,
-    status: "resolved",
-    createdAt: "2026-03-28T09:15:00Z",
-  },
-  {
-    id: "a-002",
-    text: "Не понимаю, можно ли принимать аспирин вместе с теми таблетками, что мне назначили. На упаковке написано что-то про сердце.",
-    summary: "Вопрос по совместимости лекарств",
-    formalizedText:
-      "Пациент запрашивает консультацию по совместимости ацетилсалициловой кислоты с назначенными препаратами. Указана возможная кардиологическая составляющая схемы лечения.",
-    theses: [
-      "Вопрос о совместимости аспирина с назначенными препаратами",
-      "Кардиологическое показание в схеме лечения",
-    ],
-    category:    { id: "cat_3", name: "Медикаментозное лечение" },
-    subcategory: { id: "sub_7", name: "Взаимодействие препаратов" },
-    isImportant: true,
-    importantConfidence: 0.87,
-    status: "processed",
-    createdAt: "2026-03-29T14:40:00Z",
-  },
-  {
-    id: "a-003",
-    text: "С утра поднялась температура 38.5, болит горло и немного голова. Пью воду, но не помогает.",
-    summary: "Температура 38.5°C, боль в горле",
-    formalizedText:
-      "Пациент отмечает гипертермию до 38.5°C, фарингеальный болевой синдром, цефалгию. Дебют симптоматики — утреннее время. Гидратационная терапия без эффекта.",
-    theses: [
-      "Температура 38.5°C",
-      "Боль в горле",
-      "Головная боль",
-      "Без эффекта от обильного питья",
-    ],
-    category:    { id: "cat_1", name: "Острое состояние" },
-    subcategory: { id: "sub_1", name: "ОРВИ / гипертермический синдром" },
-    isImportant: true,
-    importantConfidence: 0.98,
-    status: "processing",
-    createdAt: "2026-03-31T07:10:00Z",
-  },
-]
+// ── session helpers ────────────────────────────────────────────────────────
 
-// Module-level store survives between server-action invocations within one
-// Next.js server process. Good enough for a demo/mock.
-const runtime: Appeal[] = [...MOCK_APPEALS]
+interface SessionLike {
+  userId?: string
+  accessToken?: string
+  error?: string
+}
 
-// ── Payload shape for NATS messages (совпадает с backend/main.go) ──────────
+async function requireSession(): Promise<SessionLike> {
+  const session = (await auth()) as unknown as SessionLike | null
+  if (!session?.userId || !session.accessToken) {
+    throw new Error("NOT_AUTHENTICATED")
+  }
+  if (session.error === "RefreshAccessTokenError") {
+    throw new Error("AUTH_REFRESH_FAILED")
+  }
+  return session
+}
+
+// ── Payload shape (совпадает с backend/main.go appealSubmit / AppealRow) ───
 
 interface AppealSubmitPayload {
   id: string
   text: string
   created_at: string
-  user_id?: string
+  user_id: string
 }
 
 interface AppealResultPayload {
@@ -102,44 +68,67 @@ interface AppealResultPayload {
   error?: string
 }
 
+// Shape строк из бэкенд-REST /users/:id/appeals (backend.AppealRow).
+interface BackendAppealRow {
+  id: string
+  user_id: string
+  text: string
+  summary: string
+  formalized_text: string
+  is_important: boolean
+  important_confidence?: number
+  reason: string
+  theses: string[]
+  category_id?: string
+  category_name?: string
+  subcategory_id?: string
+  subcategory_name?: string
+  status: string
+  created_at: string
+}
+
+function rowToAppeal(r: BackendAppealRow): Appeal {
+  return {
+    id: r.id,
+    text: r.text,
+    summary: r.summary || r.text.slice(0, 50),
+    formalizedText: r.formalized_text || r.text,
+    theses: r.theses ?? [],
+    category: r.category_id && r.category_name
+      ? { id: r.category_id, name: r.category_name }
+      : null,
+    subcategory: r.subcategory_id && r.subcategory_name
+      ? { id: r.subcategory_id, name: r.subcategory_name }
+      : null,
+    isImportant: r.is_important,
+    importantConfidence: r.important_confidence,
+    status: (r.status as Appeal["status"]) ?? "processed",
+    createdAt: r.created_at,
+  }
+}
+
 // ── NATS integration ───────────────────────────────────────────────────────
 
-/**
- * Отправляет текст в backend ИИ через NATS JetStream и ждёт результат.
- *
- * Гарантии:
- *   - js.publish возвращает ack только после записи на диск → submit не
- *     пропадёт при рестарте NATS/бэкенда;
- *   - durable consumer в бэкенде переживает рестарт — необработанные
- *     сообщения доставятся снова;
- *   - результат публикуется с MsgId (дедупликация при повторных доставках).
- *
- * Таймаут здесь только на ожидание ответа фронтендом. Если он истёк — submit
- * всё равно в JetStream, и бэкенд его обработает, просто этот запрос не увидит
- * результат (у него будет status: "processing").
- */
 async function analyzeViaNats(
   id: string,
   text: string,
+  userId: string,
 ): Promise<NlpAnalyzeResult | null> {
   let outcome: NlpOutcome = "success"
   const endTimer = nlpAnalyzeDuration.startTimer()
   try {
     const { nc, js } = await getNats()
 
-    // Подписываемся ДО публикации, иначе можем пропустить быстрый ответ.
-    // max: 1 — автоматически закрываем после первого сообщения.
     const sub = nc.subscribe(`${APPEALS_RESULT_SUBJECT_PREFIX}${id}`, { max: 1 })
-    // flush гарантирует, что сервер увидел нашу SUB до PUB.
     await nc.flush()
 
     try {
       const payload: AppealSubmitPayload = {
         id,
         text,
+        user_id: userId,
         created_at: new Date().toISOString(),
       }
-      // JetStream publish с MsgId — защищает от дублей submit при retry сети.
       await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
         msgID: `submit-${id}`,
         timeout: 5_000,
@@ -194,17 +183,49 @@ function makeSummary(text: string, max = 50): string {
 
 // ── Public server actions ──────────────────────────────────────────────────
 
-export async function getAppealsAction(): Promise<Appeal[]> {
-  // Newest first
-  return [...runtime].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+/**
+ * Забирает список обращений пользователя из backend REST.
+ * Фильтры серверные: search (ILIKE) + category + subcategory.
+ */
+export async function getAppealsAction(
+  filters: AppealFilters = {},
+): Promise<Appeal[]> {
+  const session = await requireSession()
+
+  const qs = new URLSearchParams()
+  if (filters.search) qs.set("search", filters.search)
+  if (filters.categoryId) qs.set("category", filters.categoryId)
+  if (filters.subcategoryId) qs.set("subcategory", filters.subcategoryId)
+
+  const url = `${BACKEND_URL}/users/${encodeURIComponent(session.userId!)}/appeals${qs.toString() ? "?" + qs.toString() : ""}`
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => "")
+    throw new Error(`backend /users/.../appeals ${res.status}: ${body}`)
+  }
+  const data = (await res.json()) as { appeals: BackendAppealRow[] }
+  return (data.appeals ?? []).map(rowToAppeal)
 }
 
+/**
+ * Создаёт обращение: публикует в NATS (user_id прикладывается из сессии),
+ * ждёт ответ от backend/nlp. Сама строка сохраняется в БД бэкендом — здесь
+ * мы только возвращаем видимый результат для оптимистичного обновления UI.
+ */
 export async function createAppealAction(text: string): Promise<Appeal> {
   const trimmed = text.trim()
   if (!trimmed) throw new Error("Текст обращения не может быть пустым")
 
-  const id = `a-${randomUUID()}`
-  const nlp = await analyzeViaNats(id, trimmed)
+  const session = await requireSession()
+
+  const id = randomUUID()
+  const nlp = await analyzeViaNats(id, trimmed, session.userId!)
 
   const appeal: Appeal = {
     id,
@@ -220,7 +241,6 @@ export async function createAppealAction(text: string): Promise<Appeal> {
     createdAt: new Date().toISOString(),
   }
 
-  runtime.unshift(appeal)
   appealsCreated.inc({ is_important: String(appeal.isImportant) })
   revalidatePath("/appeals")
   return appeal

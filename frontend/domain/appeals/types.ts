@@ -33,3 +33,9 @@ export interface NlpAnalyzeResult {
   category?: AppealCategory | null
   subcategory?: AppealCategory | null
 }
+
+export interface AppealFilters {
+  search?: string
+  categoryId?: string
+  subcategoryId?: string
+}

@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -303,15 +304,89 @@ func callNLP(ctx context.Context, nlpURL, text string) (*nlpAnalyzeResponse, err
 	return &out, nil
 }
 
+// makeSummary — короткая выжимка из текста для списка, как на фронте.
+func makeSummary(text string, max int) string {
+	s := strings.Join(strings.Fields(text), " ")
+	if len([]rune(s)) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max-1]) + "…"
+}
+
+// strPtr — вспомогательная, возвращает nil для пустых строк.
+func strPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// buildAppealRow — собирает строку для Postgres из NLP-ответа и submit-запроса.
+func buildAppealRow(req appealSubmit, resp *nlpAnalyzeResponse) AppealRow {
+	var createdAt time.Time
+	if req.CreatedAt != "" {
+		if t, err := time.Parse(time.RFC3339, req.CreatedAt); err == nil {
+			createdAt = t
+		}
+	}
+
+	var conf *float64
+	if resp.ImportantConfidence != 0 {
+		v := resp.ImportantConfidence
+		conf = &v
+	}
+
+	row := AppealRow{
+		ID:                  req.ID,
+		UserID:              req.UserID,
+		Text:                req.Text,
+		Summary:             makeSummary(req.Text, 50),
+		FormalizedText:      resp.FormalizedText,
+		IsImportant:         resp.IsImportant,
+		ImportantConfidence: conf,
+		Reason:              resp.Reason,
+		Theses:              resp.Theses,
+		Status:              "processed",
+		CreatedAt:           createdAt,
+	}
+	if cid, ok := resp.Category["id"]; ok {
+		row.CategoryID = strPtr(cid)
+		if name, ok := resp.Category["name"]; ok {
+			row.CategoryName = strPtr(name)
+		}
+	}
+	if sid, ok := resp.Subcategory["id"]; ok {
+		row.SubcategoryID = strPtr(sid)
+		if name, ok := resp.Subcategory["name"]; ok {
+			row.SubcategoryName = strPtr(name)
+		}
+	}
+	if row.Theses == nil {
+		row.Theses = []string{}
+	}
+	return row
+}
+
 // handleAppeal — обрабатывает одно сообщение: валидирует, зовёт NLP,
-// публикует результат через JetStream (с ack персистентности) и ack исходника.
-// При ошибке NLP — публикуем ошибку best-effort через core publish и NAK,
-// чтобы JetStream переставил в очередь (до MaxDeliver).
-func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, nlpURL string, m *nats.Msg) {
+// сохраняет в Postgres, публикует результат через JetStream и ack исходника.
+// При ошибке NLP или БД — NAK с задержкой (до MaxDeliver попыток).
+//
+// Порядок: NLP → DB (upsert) → publish result → ack. Если сохранение в БД
+// упало — не публикуем, чтобы фронт не подумал «готово», а сообщение
+// осталось в JetStream и повторилось.
+func handleAppeal(
+	ctx context.Context,
+	nc *nats.Conn,
+	js nats.JetStreamContext,
+	store *Store,
+	nlpURL string,
+	m *nats.Msg,
+) {
 	var req appealSubmit
 	if err := json.Unmarshal(m.Data, &req); err != nil {
 		slog.Error("appeals.submit: invalid JSON, dropping", "error", err)
-		_ = m.Term() // невалидное — выкидываем безвозвратно
+		_ = m.Term()
 		return
 	}
 	if req.ID == "" || req.Text == "" {
@@ -327,6 +402,7 @@ func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, 
 	}
 	slog.Info("processing appeal",
 		"id", req.ID,
+		"user_id", req.UserID,
 		"chars", len(req.Text),
 		"delivery", deliveryNum)
 
@@ -335,13 +411,26 @@ func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, 
 	resp, err := callNLP(ctx, nlpURL, req.Text)
 	if err != nil {
 		slog.Error("nlp-service call failed", "id", req.ID, "error", err)
-		// best-effort публикация ошибки, чтобы фронт не висел в таймауте
 		errPayload, _ := json.Marshal(appealError{ID: req.ID, Error: err.Error()})
 		if pubErr := nc.Publish(resultSubj, errPayload); pubErr != nil {
 			slog.Error("publish error result failed", "id", req.ID, "error", pubErr)
 		}
 		_ = m.NakWithDelay(5 * time.Second)
 		return
+	}
+
+	if store != nil && req.UserID != "" {
+		row := buildAppealRow(req, resp)
+		dbCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		err := store.Save(dbCtx, row)
+		cancel()
+		if err != nil {
+			slog.Error("postgres save failed, will retry", "id", req.ID, "error", err)
+			_ = m.NakWithDelay(3 * time.Second)
+			return
+		}
+	} else if req.UserID == "" {
+		slog.Warn("appeal without user_id — not persisting to DB", "id", req.ID)
 	}
 
 	result := appealResult{ID: req.ID, nlpAnalyzeResponse: *resp}
@@ -351,8 +440,6 @@ func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, 
 		_ = m.Term()
 		return
 	}
-	// js.Publish с MsgId — гарантирует персистентность (ack от JetStream)
-	// и защищает от дублей результата при повторной доставке submit-сообщения.
 	if _, err := js.Publish(resultSubj, payload, nats.MsgId("result-"+req.ID)); err != nil {
 		slog.Error("publish result failed, will retry", "id", req.ID, "error", err)
 		_ = m.NakWithDelay(2 * time.Second)
@@ -370,11 +457,17 @@ func handleAppeal(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, 
 
 // startAppealsConsumer — запускает durable queue-subscribe на appeals.submit.
 // QueueSubscribe + Durable = пул воркеров, переживающий рестарты.
-func startAppealsConsumer(ctx context.Context, nc *nats.Conn, js nats.JetStreamContext, nlpURL string) (*nats.Subscription, error) {
+func startAppealsConsumer(
+	ctx context.Context,
+	nc *nats.Conn,
+	js nats.JetStreamContext,
+	store *Store,
+	nlpURL string,
+) (*nats.Subscription, error) {
 	sub, err := js.QueueSubscribe(
 		appealsSubmitSubj,
 		appealsQueue,
-		func(m *nats.Msg) { handleAppeal(ctx, nc, js, nlpURL, m) },
+		func(m *nats.Msg) { handleAppeal(ctx, nc, js, store, nlpURL, m) },
 		nats.BindStream(appealsStream),
 		nats.Durable(appealsDurable),
 		nats.ManualAck(),
@@ -410,9 +503,38 @@ func main() {
 	if httpAddr == "" {
 		httpAddr = ":8080"
 	}
+	dbURL := os.Getenv("DATABASE_URL")
+	zitadelIssuer := os.Getenv("ZITADEL_ISSUER")
 
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	slog.Info("starting ai-medincident-backend")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Postgres (обязателен: фронт ждёт REST из него).
+	if dbURL == "" {
+		log.Fatalf("DATABASE_URL is required")
+	}
+	store, err := NewStore(ctx, dbURL)
+	if err != nil {
+		log.Fatalf("postgres init: %v", err)
+	}
+	defer store.Close()
+	slog.Info("postgres ready")
+
+	// Zitadel JWT validator — нужен на REST. Если issuer пустой, endpoint
+	// просто вернёт 503 (защита от случайного запуска без auth-конфига).
+	var authVerifier *Auth
+	if zitadelIssuer != "" {
+		authVerifier, err = NewAuth(ctx, zitadelIssuer)
+		if err != nil {
+			log.Fatalf("JWT verifier init: %v", err)
+		}
+		slog.Info("Zitadel JWKS loaded", "issuer", zitadelIssuer)
+	} else {
+		slog.Warn("ZITADEL_ISSUER not set — REST /users/:id/appeals will return 503")
+	}
 
 	nc, err := connectNATS(natsURL)
 	if err != nil {
@@ -425,19 +547,14 @@ func main() {
 		log.Fatalf("cannot access JetStream: %v", err)
 	}
 
-	// Categories cache (KV) — как раньше.
 	c := &cache{}
 	loadWithRetry(js, c)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go watchKV(ctx, js, c)
 
-	// Appeals: стрим + consumer.
 	if err := ensureAppealsStream(js); err != nil {
 		log.Fatalf("ensure appeals stream: %v", err)
 	}
-	appealsSub, err := startAppealsConsumer(ctx, nc, js, nlpURL)
+	appealsSub, err := startAppealsConsumer(ctx, nc, js, store, nlpURL)
 	if err != nil {
 		log.Fatalf("start appeals consumer: %v", err)
 	}
@@ -453,6 +570,7 @@ func main() {
 			"categories_cached": c.len(),
 			"nats_connected":    nc.IsConnected(),
 			"appeals_consumer":  appealsSub.IsValid(),
+			"auth":              authVerifier != nil,
 		})
 	})
 
@@ -460,14 +578,53 @@ func main() {
 		return ctx.JSON(fiber.Map{"categories": c.snapshot()})
 	})
 
-	// Graceful shutdown по SIGTERM/SIGINT.
+	// GET /users/:userId/appeals?search=&category=&subcategory=
+	// Авторизация: Bearer-access_token от Zitadel. sub токена должен совпасть
+	// с :userId из URL — запретим читать чужие обращения.
+	app.Get("/users/:userId/appeals", func(fctx *fiber.Ctx) error {
+		if authVerifier == nil {
+			return fctx.Status(fiber.StatusServiceUnavailable).
+				JSON(fiber.Map{"error": "auth not configured"})
+		}
+		sub, err := authVerifier.VerifiedSubject(fasthttpToStdRequest(fctx))
+		if err != nil {
+			slog.Warn("auth failed", "error", err, "path", fctx.Path())
+			return fctx.Status(fiber.StatusUnauthorized).
+				JSON(fiber.Map{"error": "unauthorized"})
+		}
+		userID := fctx.Params("userId")
+		if userID == "" {
+			return fctx.Status(fiber.StatusBadRequest).
+				JSON(fiber.Map{"error": "missing userId"})
+		}
+		if sub != userID {
+			return fctx.Status(fiber.StatusForbidden).
+				JSON(fiber.Map{"error": "cannot access another user's appeals"})
+		}
+
+		f := ListFilter{
+			UserID:        userID,
+			Search:        strings.TrimSpace(fctx.Query("search")),
+			CategoryID:    strings.TrimSpace(fctx.Query("category")),
+			SubcategoryID: strings.TrimSpace(fctx.Query("subcategory")),
+		}
+		listCtx, listCancel := context.WithTimeout(ctx, 10*time.Second)
+		defer listCancel()
+		rows, err := store.List(listCtx, f)
+		if err != nil {
+			slog.Error("list appeals failed", "user", userID, "error", err)
+			return fctx.Status(fiber.StatusInternalServerError).
+				JSON(fiber.Map{"error": "query failed"})
+		}
+		return fctx.JSON(fiber.Map{"appeals": rows})
+	})
+
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-shutdown
 		slog.Info("shutdown signal received")
 		cancel()
-		// Drain подписки — даёт текущим in-flight сообщениям дойти до ack.
 		_ = appealsSub.Drain()
 		_ = app.Shutdown()
 	}()
@@ -476,4 +633,15 @@ func main() {
 	if err := app.Listen(httpAddr); err != nil {
 		log.Fatalf("HTTP server failed: %v", err)
 	}
+}
+
+// fasthttpToStdRequest — адаптер Fiber's fasthttp.Request в net/http.Request,
+// чтобы auth.VerifiedSubject мог читать заголовок Authorization универсально.
+// Нам нужен только Header — body/URL не читаются из JWT-валидации.
+func fasthttpToStdRequest(fctx *fiber.Ctx) *http.Request {
+	h := http.Header{}
+	fctx.Request().Header.VisitAll(func(k, v []byte) {
+		h.Add(string(k), string(v))
+	})
+	return &http.Request{Header: h}
 }
