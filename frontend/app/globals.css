@@ -245,6 +245,35 @@
     transition: none !important;
     scroll-behavior: auto !important;
   }
+
+  /* Размер шрифта — масштабирует все rem-значения */
+  html[data-font-size="lg"] { font-size: 18px; }
+  html[data-font-size="xl"] { font-size: 20px; }
+
+  /* Межбуквенный интервал */
+  html[data-letter-spacing="md"] * { letter-spacing: 0.06em; }
+  html[data-letter-spacing="lg"] * { letter-spacing: 0.12em; }
+
+  /* Контраст: белый (чёрный текст на белом фоне) */
+  html[data-contrast="high-white"] {
+    --background: oklch(1 0 0) !important;
+    --foreground: oklch(0 0 0) !important;
+    --card: oklch(0.97 0 0) !important;
+    --card-foreground: oklch(0 0 0) !important;
+    --popover: oklch(0.97 0 0) !important;
+    --popover-foreground: oklch(0 0 0) !important;
+    --border: oklch(0.2 0 0) !important;
+    --input: oklch(0.25 0 0) !important;
+    --muted: oklch(0.93 0 0) !important;
+    --muted-foreground: oklch(0.25 0 0) !important;
+    --primary: oklch(0.08 0 0) !important;
+    --primary-foreground: oklch(1 0 0) !important;
+    --secondary: oklch(0.88 0 0) !important;
+    --secondary-foreground: oklch(0 0 0) !important;
+    --accent: oklch(0.88 0 0) !important;
+    --accent-foreground: oklch(0 0 0) !important;
+    --ring: oklch(0.3 0 0) !important;
+  }
 }
 
 @utility section-label {

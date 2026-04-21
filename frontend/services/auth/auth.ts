@@ -70,16 +70,30 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
+        // Zitadel's default access_token lifetime is ~12h but admins often
+        // reduce to 1h. If the provider didn't return expires_at at all,
+        // assume the shorter end so we refresh proactively.
+        const expiresAt = account.expires_at
+          ? account.expires_at * 1000
+          : Date.now() + 55 * 60 * 1000;
+        if (!account.refresh_token) {
+          console.warn("[auth] Zitadel did not return refresh_token — offline_access scope missing or denied");
+        }
         return {
           ...token,
           accessToken: account.access_token,
           userId: account.providerAccountId,
-          expiresAt: account.expires_at ? account.expires_at * 1000 : Date.now() + 12 * 60 * 60 * 1000,
+          expiresAt,
           refreshToken: account.refresh_token,
         };
       }
 
       if (Date.now() < (token.expiresAt as number) - 60 * 1000) return token;
+
+      if (!token.refreshToken) {
+        console.warn("[auth] token expired but no refreshToken available — user will be signed out");
+        return { ...token, error: "RefreshAccessTokenError" };
+      }
 
       return await refreshAccessToken(token);
     },

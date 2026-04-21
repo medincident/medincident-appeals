@@ -1,15 +1,19 @@
 "use client";
 
-import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+
+import { loginAction } from "@/services/auth/actions";
 
 export function AutoSignIn() {
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/";
+  const firedRef = useRef(false);
 
   useEffect(() => {
-    signIn("zitadel", { callbackUrl });
+    if (firedRef.current) return;
+    firedRef.current = true;
+    void loginAction(callbackUrl);
   }, [callbackUrl]);
 
   return (

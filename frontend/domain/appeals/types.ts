@@ -19,12 +19,14 @@ export interface Appeal {
   category: AppealCategory | null
   subcategory: AppealCategory | null
   isImportant: boolean
+  importantConfidence?: number
   status: AppealStatus
   createdAt: string
 }
 
 export interface NlpAnalyzeResult {
   is_important: boolean
+  important_confidence?: number
   reason?: string
   formalized_text?: string
   theses?: string[]

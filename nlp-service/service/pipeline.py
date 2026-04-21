@@ -28,11 +28,12 @@ def run_pipeline(
     processor: TextProcessor,
     matcher: CategoryMatcher,
 ) -> dict[str, Any]:
-    is_important, _confidence = classifier.predict(text)
+    is_important, confidence = classifier.predict(text)
 
     if not is_important:
         return {
             "is_important": False,
+            "important_confidence": confidence,
             "reason": build_reason(False, None, None),
             "formalized_text": text,
             "theses": [],
@@ -50,6 +51,7 @@ def run_pipeline(
 
     return {
         "is_important": True,
+        "important_confidence": confidence,
         "reason": build_reason(True, subcategory, category),
         "formalized_text": formalized,
         "theses": theses,
