@@ -24,6 +24,11 @@
   --red: oklch(0.64 0.22 25);
   --red-foreground: oklch(0.98 0 0);
 
+  /* Pure white / black — как источник для scrim и «приподнятых» поверхностей,
+   * чтобы не хардкодить в компонентах text-white / bg-black. */
+  --white: oklch(1 0 0);
+  --black: oklch(0 0 0);
+
   /* Success (Green) */
   --success: oklch(0.65 0.17 145);
   --success-foreground: oklch(0.98 0 0);
@@ -66,6 +71,16 @@
   --border: var(--gray-200);
   --input: var(--gray-200);
   --ring: var(--brand-green);
+
+  /* Приподнятая поверхность — в светлой теме чистый белый, в тёмной — card.
+   * Используется для кнопок secondary, onbackground-инпутов и т.п. */
+  --surface-raised: var(--white);
+
+  /* Scrim под диалогами и попапами. */
+  --overlay: var(--black);
+
+  /* Мягкая тень для input-секций на главном экране. */
+  --shadow-soft: 0 2px 8px -4px color-mix(in oklab, var(--foreground) 20%, transparent);
 
   --radius: 0.5rem;
 
@@ -122,6 +137,9 @@
   --sidebar-background: oklch(0.25 0.02 270);
   --sidebar-foreground: oklch(0.98 0 0);
 
+  /* В тёмной теме «приподнятая» поверхность = card. */
+  --surface-raised: var(--card);
+
   --telegram-gradient: linear-gradient(to right, oklch(0.75 0.12 232), oklch(0.70 0.12 232));
   --max-gradient: linear-gradient(to right, oklch(0.62 0.20 264), oklch(0.60 0.24 305));
 
@@ -171,6 +189,9 @@
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-border: var(--sidebar-border);
+
+  --color-surface-raised: var(--surface-raised);
+  --color-overlay: var(--overlay);
 
   --background-image-gradient-telegram: var(--telegram-gradient);
   --background-image-gradient-max: var(--max-gradient);
@@ -310,6 +331,32 @@
   }
   &::-webkit-scrollbar-thumb:hover {
     background-color: var(--muted-foreground);
+  }
+}
+
+/* Узкий горизонтальный скроллбар без фона: прозрачный трек, тонкий thumb,
+ * стрелки без подложки. Используется для чипов-фильтров. */
+@utility scrollbar-slim-x {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+
+  &::-webkit-scrollbar { height: 6px; background: transparent; }
+  &::-webkit-scrollbar-track { background: transparent; }
+  &::-webkit-scrollbar-corner { background: transparent; }
+  &::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+  /* Стрелки — без фона, маленькие; сам стрелочный символ рисует браузер. */
+  &::-webkit-scrollbar-button {
+    background: transparent;
+    border: none;
+    height: 10px;
+    width: 10px;
+    display: block;
   }
 }
 

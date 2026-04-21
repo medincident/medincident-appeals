@@ -16,14 +16,14 @@ const buttonVariants = cva(
         outline:
           "border border-input bg-transparent hover:bg-accent hover:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground hover:opacity-85",
+          "bg-surface-raised text-foreground border border-border hover:bg-muted/40",
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         icon: "hover:bg-accent hover:text-accent-foreground [&_svg]:size-6",
         telegram:
-          "transition-all duration-300 border-0 text-white shadow-none hover:shadow-md bg-[image:var(--telegram-gradient)] hover:opacity-90 [&_svg]:size-6",
+          "transition-all duration-300 border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--telegram-gradient)] hover:opacity-90 [&_svg]:size-6",
         max:
-          "transition-all duration-300 border-0 text-white shadow-none hover:shadow-md bg-[image:var(--max-gradient)] hover:opacity-90 [&_svg]:size-6",
+          "transition-all duration-300 border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--max-gradient)] hover:opacity-90 [&_svg]:size-6",
       },
       size: {
         default: "h-9 px-4 py-2",

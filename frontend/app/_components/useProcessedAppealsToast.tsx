@@ -64,7 +64,7 @@ export function useProcessedAppealsToast() {
           }}
           className="flex items-center gap-3 rounded-lg bg-primary text-primary-foreground px-4 py-3 shadow-lg text-sm font-medium hover:opacity-90 transition-opacity w-[min(92vw,22rem)]"
         >
-          <div className="h-7 w-7 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+          <div className="h-7 w-7 rounded-full bg-primary-foreground/20 flex items-center justify-center shrink-0">
             <Check className="h-4 w-4" strokeWidth={3} />
           </div>
           <span className="flex-1 text-left">

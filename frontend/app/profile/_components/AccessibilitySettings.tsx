@@ -30,7 +30,7 @@ const CONTRAST_OPTIONS: {
   border: string
 }[] = [
   { value: "normal",     label: "Обычный", bg: "bg-background", text: "text-foreground", border: "border-border" },
-  { value: "high-white", label: "Белый",   bg: "bg-white",      text: "text-black",      border: "border-zinc-400" },
+  { value: "high-white", label: "Белый",   bg: "bg-[var(--white)]", text: "text-[var(--black)]", border: "border-border" },
 ]
 
 export function AccessibilitySettings() {

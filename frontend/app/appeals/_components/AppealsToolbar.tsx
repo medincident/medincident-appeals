@@ -20,15 +20,16 @@ interface StatusChip {
   value: AppealStatus
   label: string
   Icon: React.ComponentType<{ className?: string }>
-  spinning?: boolean
+  /** Цвет иконки и текста в неактивном состоянии (Tailwind-классы). */
+  color: string
 }
 
 const STATUS_CHIPS: readonly StatusChip[] = [
-  { value: "pending",    label: "В очереди",     Icon: Clock },
-  { value: "processing", label: "Обрабатывается", Icon: Loader2, spinning: true },
-  { value: "processed",  label: "Обработано",    Icon: Check },
-  { value: "resolved",   label: "Завершено",     Icon: CheckCheck },
-  { value: "rejected",   label: "Отклонено",     Icon: X },
+  { value: "pending",    label: "В очереди",     Icon: Clock,      color: "text-warning" },
+  { value: "processing", label: "Обрабатывается", Icon: Loader2,    color: "text-warning" },
+  { value: "processed",  label: "Обработано",    Icon: Check,      color: "text-primary" },
+  { value: "resolved",   label: "Завершено",     Icon: CheckCheck, color: "text-muted-foreground" },
+  { value: "rejected",   label: "Отклонено",     Icon: X,          color: "text-destructive" },
 ]
 
 interface AppealsToolbarProps {
@@ -57,7 +58,7 @@ export function AppealsToolbar({
           value={search}
           onChange={(e) => onSearchChange(e.target.value)}
           placeholder="Поиск по тексту обращения"
-          className="pl-9 pr-9 h-10"
+          className="pl-9 pr-9 h-10 bg-card"
           aria-label="Поиск по обращениям"
           suppressHydrationWarning
         />
@@ -74,7 +75,7 @@ export function AppealsToolbar({
       </div>
 
       <div
-        className="flex gap-1.5 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1"
+        className="flex gap-1.5 overflow-x-auto scrollbar-slim-x -mx-1 px-1 pb-1"
         role="toolbar"
         aria-label="Фильтр по статусу обращения"
       >
@@ -84,15 +85,16 @@ export function AppealsToolbar({
         >
           Все
         </Chip>
-        {STATUS_CHIPS.map(({ value, label, Icon, spinning }) => {
+        {STATUS_CHIPS.map(({ value, label, Icon, color }) => {
           const active = statusFilter === value
           return (
             <Chip
               key={value}
               active={active}
               onClick={() => onStatusChange(active ? "" : value)}
+              colorClass={color}
             >
-              <Icon className={cn("h-3 w-3", spinning && "animate-spin")} />
+              <Icon className="h-3 w-3" />
               {label}
             </Chip>
           )
@@ -104,16 +106,20 @@ export function AppealsToolbar({
 
 interface ChipProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   active: boolean
+  /** В неактивном состоянии — цвет иконки и текста. В активном перебивается на primary-foreground. */
+  colorClass?: string
 }
 
-function Chip({ active, className, children, ...rest }: ChipProps) {
+function Chip({ active, colorClass, className, children, ...rest }: ChipProps) {
   return (
     <button
       type="button"
       data-active={active}
       className={cn(
         "shrink-0 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 h-7 text-xs font-medium transition-colors",
-        "border-border bg-card hover:bg-muted/60 text-foreground/80",
+        "border-border bg-card hover:bg-muted/60",
+        colorClass ?? "text-foreground/80",
+        // В активном состоянии перекрываем цвет иконки/текста и фон.
         "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:border-primary",
         className,
       )}

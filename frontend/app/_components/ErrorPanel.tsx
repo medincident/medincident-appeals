@@ -7,7 +7,7 @@ export function ErrorPanel({ message, onDismiss }: { message: string; onDismiss:
     <div className="animate-fade-in rounded-xl border border-destructive/20 bg-destructive/[0.04] px-4 py-3.5 space-y-2">
       <div className="flex items-center gap-2">
         <div className="h-4 w-4 rounded-full bg-destructive flex items-center justify-center shrink-0">
-          <X className="h-2.5 w-2.5 text-white" />
+          <X className="h-2.5 w-2.5 text-destructive-foreground" />
         </div>
         <p className="text-sm font-medium text-foreground">Не получилось отправить</p>
       </div>

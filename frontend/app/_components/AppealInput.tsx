@@ -41,9 +41,9 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
       <div className="flex flex-col gap-2">
         <div
           className={cn(
-            "section-surface rounded-lg overflow-hidden shadow-[0_2px_8px_-4px_rgba(15,23,42,0.10)] transition-shadow duration-300 focus-within:shadow-none",
+            "section-surface rounded-lg overflow-hidden shadow-[var(--shadow-soft)] transition-shadow duration-300 focus-within:shadow-none",
             overLimit && "ring-1 ring-destructive/50",
-            recording && "ring-1 ring-red-500/60",
+            recording && "ring-1 ring-destructive/60",
           )}
         >
           <textarea
@@ -67,7 +67,7 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
           <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 text-[10px] text-muted-foreground">
             <span className="hidden sm:inline">
               {recording ? (
-                <span className="text-red-600 font-medium">● идёт запись — говорите</span>
+                <span className="text-destructive font-medium">● идёт запись — говорите</span>
               ) : (
                 <>
                   <kbd className="rounded bg-muted px-1 py-0.5 font-sans">Enter</kbd>

@@ -9,7 +9,7 @@ const inputVariants = cva(
     variants: {
       variant: {
         default: "bg-transparent",
-        onbackground: "bg-white dark:bg-card text-foreground",
+        onbackground: "bg-surface-raised text-foreground",
       },
     },
     defaultVariants: {
