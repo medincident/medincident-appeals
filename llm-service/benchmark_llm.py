@@ -28,10 +28,11 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DATASET_PATH = Path(__file__).parent / "dataset.jsonl"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DATASET_PATH = PROJECT_ROOT / "dataset.jsonl"
 DEFAULT_MODEL = "qwen2.5:3b"
 
-sys.path.insert(0, str(Path(__file__).parent / "categories-service"))
+sys.path.insert(0, str(PROJECT_ROOT / "categories-service"))
 from categories import CATEGORIES  # noqa: E402
 
 SYSTEM_PROMPT = (
@@ -119,7 +120,7 @@ def call_llm(url, model, messages):
 
 
 def load_test_set():
-    sys.path.insert(0, str(Path(__file__).parent / "nlp-service"))
+    sys.path.insert(0, str(PROJECT_ROOT / "nlp-service"))
     from train_classifier import load_dataset, split_by_templates
 
     texts, labels, template_ids = load_dataset(DATASET_PATH)

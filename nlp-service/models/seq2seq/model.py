@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import torch
 from transformers import T5ForConditionalGeneration, T5Tokenizer
@@ -13,6 +14,46 @@ from paths import CACHE_DIR, TRAINED_SEQ2SEQ_DIR
 logger = logging.getLogger(__name__)
 
 BASE_MODEL = "cointegrated/rut5-base-multitask"
+
+# Пороги для валидации сгенерированных тезисов. На OOD/шумном входе T5
+# вырождается в копию исходника либо формализации — отсекаем такое post-hoc.
+_MIN_THESIS_WORDS = 2
+_MAX_THESIS_CHARS = 120
+_MAX_ORIGINAL_OVERLAP = 0.7   # >70% 3-gram совпадения с оригиналом → копия
+_MAX_FORMALIZED_OVERLAP = 0.8  # >80% с формализацией → не добавляет инфы
+
+_TOKEN_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
+
+
+def _tokenize(text: str) -> list[str]:
+    return [t for t in _TOKEN_RE.split(text.lower()) if t]
+
+
+def _ngrams(tokens: list[str], n: int) -> set[tuple[str, ...]]:
+    if len(tokens) < n:
+        return {tuple(tokens)} if tokens else set()
+    return {tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1)}
+
+
+def _ngram_containment(thesis: str, reference: str, n: int = 3) -> float:
+    """Доля 3-грамм тезиса, присутствующих в reference. 1.0 = тезис полностью
+    содержится в reference (копия)."""
+    t_grams = _ngrams(_tokenize(thesis), n)
+    if not t_grams:
+        return 0.0
+    r_grams = _ngrams(_tokenize(reference), n)
+    return len(t_grams & r_grams) / len(t_grams)
+
+
+def _is_valid_thesis(thesis: str, original: str, formalized: str | None) -> bool:
+    words = _tokenize(thesis)
+    if len(words) < _MIN_THESIS_WORDS or len(thesis) > _MAX_THESIS_CHARS:
+        return False
+    if _ngram_containment(thesis, original) > _MAX_ORIGINAL_OVERLAP:
+        return False
+    if formalized and _ngram_containment(thesis, formalized) > _MAX_FORMALIZED_OVERLAP:
+        return False
+    return True
 
 
 class TextProcessor:
@@ -80,11 +121,11 @@ class TextProcessor:
     def formalize(self, text: str) -> str:
         return self._generate(f"формализуй: {text}", max_new_tokens=150)
 
-    def extract_theses(self, text: str) -> list[str]:
+    def extract_theses(self, text: str, formalized: str | None = None) -> list[str]:
         raw = self._generate(f"тезисы: {text}", max_new_tokens=100)
         theses = []
         for line in raw.split("\n"):
             line = line.strip().lstrip("-•*·— ").strip()
             if line:
                 theses.append(line)
-        return theses or [text[:80]]
+        return [t for t in theses if _is_valid_thesis(t, text, formalized)]

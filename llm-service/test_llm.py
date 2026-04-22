@@ -19,10 +19,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "categories-service"))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT / "categories-service"))
 from categories import CATEGORIES  # noqa: E402
 
-DATASET_PATH = Path(__file__).parent / "dataset.jsonl"
+DATASET_PATH = PROJECT_ROOT / "dataset.jsonl"
 DEFAULT_MODEL = "qwen2.5:3b"
 
 SYSTEM_PROMPT = (

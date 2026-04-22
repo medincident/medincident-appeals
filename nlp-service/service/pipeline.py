@@ -6,14 +6,21 @@ from typing import Any
 
 from models import CategoryMatcher, ImportanceClassifier, TextProcessor
 
+# Ниже этого порога классификатор неуверен — seq2seq/similarity на таких входах
+# галлюцинируют (OOD-проблема). Возвращаем флаг "важно", но без генерации.
+CONFIDENCE_THRESHOLD = 0.85
+
 
 def build_reason(
     is_important: bool,
     subcategory: dict | None,
     category: dict | None,
+    confident: bool = True,
 ) -> str:
     if not is_important:
         return "Сообщение не содержит жалоб на здоровье или условия пребывания"
+    if not confident:
+        return "Обращение требует ручной проверки: низкая уверенность классификатора"
     if subcategory:
         return f"Содержит жалобу на {subcategory['name'].lower()}"
     if category:
@@ -41,8 +48,19 @@ def run_pipeline(
             "subcategory": None,
         }
 
+    if confidence < CONFIDENCE_THRESHOLD:
+        return {
+            "is_important": True,
+            "important_confidence": confidence,
+            "reason": build_reason(True, None, None, confident=False),
+            "formalized_text": text,
+            "theses": [],
+            "category": None,
+            "subcategory": None,
+        }
+
     formalized = processor.formalize(text)
-    theses = processor.extract_theses(text)
+    theses = processor.extract_theses(text, formalized)
 
     if override_categories:
         matcher.update_categories(override_categories)
