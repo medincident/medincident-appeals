@@ -1,6 +1,7 @@
 "use client"
 
 import useSWR from "swr"
+
 import { getAppealsAction } from "./actions"
 import type { Appeal, AppealFilters } from "./types"
 

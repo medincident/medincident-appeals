@@ -5,7 +5,7 @@ import { SessionProvider, useSession } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
 
 import { Toaster } from "@/components/ui/sonner";
-import { logoutAction } from "@/services/auth/actions";
+import { localLogoutAction } from "@/services/auth/actions";
 import { SettingsProvider } from "./_components/SettingsProvider";
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
@@ -21,7 +21,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 
     if (shouldLogout) {
       loggingOutRef.current = true;
-      void logoutAction();
+      void localLogoutAction();
     }
   }, [status, data]);
 

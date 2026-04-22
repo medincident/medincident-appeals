@@ -2,10 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import {
-  AlertCircle,
-  ClipboardList,
-} from "lucide-react"
+import { ClipboardList } from "lucide-react"
 import { toast } from "sonner"
 
 import { useProfileStore } from "@/lib/stores/profile.store"
@@ -143,27 +140,16 @@ export default function MainPage() {
 
         <div className="flex-1 sm:flex-initial flex flex-col items-center justify-center gap-2 text-center py-6 sm:py-0">
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
-            AI Medincident
+            Medincident
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground max-w-md">
             {firstName
-              ? `Здравствуйте, ${firstName}. Расскажите, что вас беспокоит.`
-              : "Расскажите, что вас беспокоит."}
+              ? `Здравствуйте, ${firstName}. Поделитесь обращением, благодарностью или предложением.`
+              : "Портал обращений, благодарностей и предложений."}
           </p>
         </div>
 
         <div className="w-full flex flex-col gap-3 min-h-[220px]">
-
-          {/* Tabs */}
-          <div className="flex gap-2 justify-left">
-            <button
-              type="button"
-              className="flex items-center justify-center gap-1.5 rounded-md border border-primary bg-primary/5 text-primary px-5 py-2 text-xs font-medium min-w-28"
-            >
-              <AlertCircle className="h-3.5 w-3.5" />
-              Обращение
-            </button>
-          </div>
 
           {submission.kind === "success" ? (
             <SuccessPanel appeal={submission.appeal} fading={submission.fading} />
