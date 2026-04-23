@@ -29,6 +29,7 @@ class TestItem:
     text: str
     label: int  # 1 если is_important, иначе 0
     answer: dict  # распарсенный assistant JSON
+    template_id: str
 
 
 def load_test_set(limit: int | None = None) -> list[TestItem]:
@@ -42,6 +43,7 @@ def load_test_set(limit: int | None = None) -> list[TestItem]:
             text=examples[i].text,
             label=1 if examples[i].answer["is_important"] else 0,
             answer=examples[i].answer,
+            template_id=examples[i].template_id,
         )
         for i in test_idx
     ]

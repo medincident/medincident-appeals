@@ -1,16 +1,15 @@
-# --- Stage 1: Install production dependencies only ---
+# --- Stage 1: Install all deps (для билда нужны и dev) ---
 FROM oven/bun:1-alpine AS deps
 WORKDIR /app
+RUN apk add --no-cache libc6-compat
 COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile --production || bun install --production
+RUN --mount=type=cache,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
-# --- Stage 2: Install all deps + build ---
+# --- Stage 2: Build (next build с output: "standalone") ---
 FROM oven/bun:1-alpine AS builder
 WORKDIR /app
-
-COPY package.json bun.lock* ./
-RUN bun install --frozen-lockfile || bun install
-
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 ARG AUTH_APP_URL
@@ -25,28 +24,28 @@ ENV AUTH_APP_URL=${AUTH_APP_URL} \
     APP_URL=${APP_URL} \
     AUTH_CLIENT_ID=${AUTH_CLIENT_ID} \
     AUTH_SECRET=${AUTH_SECRET} \
-    NEXT_PUBLIC_AUTH_APP_URL=${NEXT_PUBLIC_AUTH_APP_URL}
+    NEXT_PUBLIC_AUTH_APP_URL=${NEXT_PUBLIC_AUTH_APP_URL} \
+    NEXT_TELEMETRY_DISABLED=1
 
-# --bun = нативный Bun runtime для максимальной скорости билда
 RUN bun --bun run next build
 
-# --- Stage 3: Minimal production runner ---
+# --- Stage 3: Minimal runner (только standalone + static + public) ---
 FROM oven/bun:1-alpine AS runner
 WORKDIR /app
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+# standalone уже содержит server.js + нужные node_modules + next.config.
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/package.json ./
-COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./
 
 USER nextjs
 EXPOSE 3000
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
 
-CMD ["bun", "--bun", "--smol", "run", "next", "start", "-H", "0.0.0.0", "-p", "3000"]
+CMD ["bun", "--bun", "--smol", "server.js"]

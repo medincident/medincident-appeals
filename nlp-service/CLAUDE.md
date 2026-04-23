@@ -101,7 +101,7 @@ nlp-service/
 ├── Dockerfile
 ├── .dockerignore                   # исключает train.py, shared.py, benchmarks/
 ├── entrypoint.sh
-├── pyproject.toml                  # runtime deps + extras (train, dev) + ruff + pytest
+├── pyproject.toml                  # все deps в основных + dev extras (ruff) + ruff + pytest
 └── README.md
 ```
 

@@ -3,6 +3,8 @@ import type { NextConfig } from "next"
 const GRAFANA_URL = process.env.GRAFANA_URL ?? "http://grafana:3000"
 
 const nextConfig: NextConfig = {
+  // standalone собирает server.js + минимальные node_modules в .next/standalone
+  output: "standalone",
   async rewrites() {
     return [
       // /metrics без слеша → Grafana ожидает subpath '/metrics/', добавляем его в destination.

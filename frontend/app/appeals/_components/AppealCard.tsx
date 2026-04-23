@@ -15,6 +15,7 @@ import {
 
 import { Badge } from "@/components/ui/badge"
 import type { Appeal, AppealStatus } from "@/domain/appeals/types"
+import { timeAgo } from "@/lib/time"
 
 const STATUS_CONFIG: Record<
   AppealStatus,
@@ -28,16 +29,6 @@ const STATUS_CONFIG: Record<
 }
 
 export const IN_PROGRESS_STATUSES = new Set<AppealStatus>(["pending", "processing"])
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return "только что"
-  if (m < 60) return `${m} мин назад`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} ч назад`
-  return `${Math.floor(h / 24)} д назад`
-}
 
 function AiInfoBlock({ appeal }: { appeal: Appeal }) {
   const confidencePct = typeof appeal.importantConfidence === "number"

@@ -187,6 +187,36 @@ services:
       - backend
     logging: *default-logging
 
+  frontend-dev:
+    profiles: [dev]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: frontend-dev
+    restart: unless-stopped
+    ports:
+      - "8082:3000"
+    environment:
+      AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
+      AUTH_ORG_ID: "366537916404531205"
+      AUTH_CLIENT_ID: "367696885982494726"
+      APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
+      NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+      NATS_URL: "nats://nats:4222"
+      BACKEND_URL: "http://backend:8080"
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - frontend_debug_node_modules:/app/node_modules
+    networks:
+      - ai-medincident
+    depends_on:
+      - backend
+    logging: *default-logging
+
   # ── Prometheus: собирает метрики с nlp-service и frontend ───────────────────
   prometheus:
     image: prom/prometheus:v2.55.1
@@ -237,3 +267,4 @@ volumes:
   nlp_models:      # кэш HuggingFace моделей (~368MB)
   prometheus_data: # TSDB метрик (retention 7 дней)
   grafana_data:    # настройки Grafana
+  frontend_debug_node_modules: # изолируем musl-бинари от bind-mount'а ./frontend

@@ -42,12 +42,12 @@
 ai_medincident/
 ├── dataset.jsonl              # 3000 примеров (75/25 баланс, template_id)
 ├── generate_dataset.py        # генератор датасета (seed=42)
-├── test_llm.py                # тест Qwen на 1 примере
-├── benchmark_llm.py           # бенчмарк Qwen на test set
 ├── theory.md                  # вся теория
 ├── report.md                  # результаты для диплома
 ├── categories-service/        # публикация категорий в NATS KV
 ├── llm-service/               # Ollama + Qwen2.5-3B
+│   ├── test_llm.py            # тест Qwen на 1 примере
+│   └── benchmark_llm.py       # бенчмарк Qwen на test set
 ├── nlp-service/               # NLP-пайплайн
 │   ├── models/                # classifier, seq2seq, similarity
 │   ├── train_classifier.py    # fine-tune rubert-tiny2
@@ -100,7 +100,7 @@ python3 train_seq2seq.py       # ~60 мин CPU
 # Бенчмарки (cd nlp-service)
 python3 benchmark_nlp.py       # полный pipeline (quality + latency + memory)
 
-# LLM тест
+# LLM тест (cd llm-service)
 python3 test_llm.py --seed 42  # один пример
 python3 benchmark_llm.py --limit 30 # бенчмарк (~55 мин CPU)
 ```

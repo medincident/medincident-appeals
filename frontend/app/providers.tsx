@@ -6,32 +6,45 @@ import { ThemeProvider } from "next-themes";
 
 import { Toaster } from "@/components/ui/sonner";
 import { localLogoutAction } from "@/services/auth/actions";
+import { SessionExpiredDialog } from "./_components/SessionExpiredDialog";
 import { SettingsProvider } from "./_components/SettingsProvider";
 
 function SessionGuard({ children }: { children: React.ReactNode }) {
   const { data, status } = useSession();
   const loggingOutRef = React.useRef(false);
 
+  // RefreshAccessTokenError = был залогинен, refresh-токен умер.
+  // Показываем диалог «войдите заново» — автоматически выкидывать нельзя,
+  // пользователь может потерять несохранённые данные.
+  const refreshFailed = (data as any)?.error === "RefreshAccessTokenError";
+
   React.useEffect(() => {
     if (status === "loading") return;
     if (loggingOutRef.current) return;
+    if (refreshFailed) return;
 
-    const shouldLogout =
-      status === "unauthenticated" || (data as any)?.error === "RefreshAccessTokenError";
-
-    if (shouldLogout) {
+    // "unauthenticated" без предыдущей сессии — обычный кейс, уводим на /login
+    // (там AutoSignIn сам редиректит в Zitadel).
+    if (status === "unauthenticated") {
       loggingOutRef.current = true;
       void localLogoutAction();
     }
-  }, [status, data]);
+  }, [status, refreshFailed]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <SessionExpiredDialog open={refreshFailed} />
+    </>
+  );
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider
-      refetchInterval={5 * 60}
+      // 60s = синхронизируем с ACCESS_TOKEN_MAX_AGE_MS в services/auth/auth.ts,
+      // чтобы revoke сессии в Zitadel ловился максимум за минуту.
+      refetchInterval={60}
       refetchOnWindowFocus
     >
       <ThemeProvider

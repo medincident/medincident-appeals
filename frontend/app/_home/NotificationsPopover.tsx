@@ -1,24 +1,13 @@
 "use client"
 
-import * as React from "react"
 import Link from "next/link"
 import { AlertCircle, Bell, Check, CheckCheck, HelpCircle } from "lucide-react"
 
 import { useNotifications } from "@/domain/notifications/hooks"
 import { markAllReadAction } from "@/domain/notifications/actions"
 import type { NotificationItem as DomainNotification } from "@/domain/notifications/types"
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime()
-  const m = Math.floor(diff / 60000)
-  if (m < 1) return "только что"
-  if (m < 60) return `${m} мин назад`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} ч назад`
-  const d = Math.floor(h / 24)
-  if (d === 1) return "Вчера"
-  return `${d} д назад`
-}
+import { timeAgo } from "@/lib/time"
+import { usePopover } from "@/lib/usePopover"
 
 function NotificationRow({ notification }: { notification: DomainNotification }) {
   const Icon =
@@ -64,27 +53,10 @@ function NotificationRow({ notification }: { notification: DomainNotification })
 }
 
 export function NotificationsPopover() {
-  const [open, setOpen] = React.useState(false)
+  const { open, setOpen, rootRef } = usePopover()
   const { notifications, mutate } = useNotifications()
-  const rootRef = React.useRef<HTMLDivElement>(null)
 
   const unreadCount = notifications.filter((i) => !i.read).length
-
-  React.useEffect(() => {
-    if (!open) return
-    function onPointerDown(e: MouseEvent) {
-      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("mousedown", onPointerDown)
-    document.addEventListener("keydown", onKey)
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown)
-      document.removeEventListener("keydown", onKey)
-    }
-  }, [open])
 
   async function markAllRead() {
     const updated = await markAllReadAction()

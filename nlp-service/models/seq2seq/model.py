@@ -17,41 +17,45 @@ BASE_MODEL = "cointegrated/rut5-base-multitask"
 
 # Пороги для валидации сгенерированных тезисов. На OOD/шумном входе T5
 # вырождается в копию исходника либо формализации — отсекаем такое post-hoc.
+# Bag-of-unigrams (а не n-граммы): в русском свободный порядок слов, тезис
+# может быть переставленной копией ("На пол упал" ↔ "упал на пол").
 _MIN_THESIS_WORDS = 2
 _MAX_THESIS_CHARS = 120
-_MAX_ORIGINAL_OVERLAP = 0.7   # >70% 3-gram совпадения с оригиналом → копия
-_MAX_FORMALIZED_OVERLAP = 0.8  # >80% с формализацией → не добавляет инфы
+_MAX_ORIGINAL_OVERLAP = 0.8    # >80% content-слов тезиса есть в оригинале → копия
+_MAX_FORMALIZED_OVERLAP = 0.85  # >85% есть в формализации → не добавляет инфы
 
 _TOKEN_RE = re.compile(r"[^\w]+", flags=re.UNICODE)
+# Стоп-слова исключаем, чтобы "в" и "на" не раздували overlap до ложных срабатываний.
+_STOPWORDS = frozenset({
+    "и", "в", "на", "с", "по", "к", "у", "о", "об", "от", "до", "из", "за",
+    "для", "при", "про", "без", "под", "над", "через", "а", "но", "или",
+    "же", "бы", "не", "ни", "что", "это", "тот", "та", "те", "как", "так",
+    "уже", "ещё", "только", "очень", "был", "была", "было", "были", "есть",
+})
 
 
-def _tokenize(text: str) -> list[str]:
-    return [t for t in _TOKEN_RE.split(text.lower()) if t]
+def _content_tokens(text: str) -> set[str]:
+    """Токены без пунктуации и стоп-слов, нижний регистр."""
+    return {t for t in _TOKEN_RE.split(text.lower()) if t and t not in _STOPWORDS}
 
 
-def _ngrams(tokens: list[str], n: int) -> set[tuple[str, ...]]:
-    if len(tokens) < n:
-        return {tuple(tokens)} if tokens else set()
-    return {tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1)}
-
-
-def _ngram_containment(thesis: str, reference: str, n: int = 3) -> float:
-    """Доля 3-грамм тезиса, присутствующих в reference. 1.0 = тезис полностью
-    содержится в reference (копия)."""
-    t_grams = _ngrams(_tokenize(thesis), n)
-    if not t_grams:
+def _token_containment(thesis: str, reference: str) -> float:
+    """Доля content-токенов тезиса, встречающихся в reference. 1.0 = тезис
+    (возможно, переставленный) полностью содержится в reference."""
+    t_tokens = _content_tokens(thesis)
+    if not t_tokens:
         return 0.0
-    r_grams = _ngrams(_tokenize(reference), n)
-    return len(t_grams & r_grams) / len(t_grams)
+    r_tokens = _content_tokens(reference)
+    return len(t_tokens & r_tokens) / len(t_tokens)
 
 
 def _is_valid_thesis(thesis: str, original: str, formalized: str | None) -> bool:
-    words = _tokenize(thesis)
-    if len(words) < _MIN_THESIS_WORDS or len(thesis) > _MAX_THESIS_CHARS:
+    tokens = _content_tokens(thesis)
+    if len(tokens) < _MIN_THESIS_WORDS or len(thesis) > _MAX_THESIS_CHARS:
         return False
-    if _ngram_containment(thesis, original) > _MAX_ORIGINAL_OVERLAP:
+    if _token_containment(thesis, original) > _MAX_ORIGINAL_OVERLAP:
         return False
-    if formalized and _ngram_containment(thesis, formalized) > _MAX_FORMALIZED_OVERLAP:
+    if formalized and _token_containment(thesis, formalized) > _MAX_FORMALIZED_OVERLAP:
         return False
     return True
 

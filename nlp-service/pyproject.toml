@@ -5,9 +5,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["models", "service", "benchmarks"]
-# paths.py и main.py НЕ включаем в wheel: копия в site-packages сломает
-# `Path(__file__)` в paths.py (резолвил бы в site-packages, а не в исходники).
-# Editable .pth-файл и так добавляет nlp-service/ в sys.path.
 
 [project]
 name = "nlp-service"
@@ -25,21 +22,18 @@ dependencies = [
     "sentencepiece>=0.2.0",
     "tiktoken>=0.7.0",
     "numpy>=2.0.0",
+    "orjson>=3.10.0",
     "protobuf>=5.0.0",
     "pydantic>=2.0.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
     "python-json-logger>=2.0.7",
-]
-
-# Docker runtime ставит только dependencies. Train/dev — только для разработки.
-[project.optional-dependencies]
-train = [
-    "datasets>=3.0.0",
-    "accelerate>=1.0.0",
+    "accelerate>=1.1.0",
     "scikit-learn>=1.5.0",
     "rouge-score>=0.1.2",
     "bert-score>=0.3.13",
 ]
+
+[project.optional-dependencies]
 dev = [
     "ruff>=0.7.0",
 ]
@@ -71,7 +65,6 @@ ignore = [
     "E501",
     "B008",
     "SIM108",
-    # Кириллица в строках/докстрингах — false positive для русского проекта.
     "RUF001",
     "RUF002",
     "RUF003",

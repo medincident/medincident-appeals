@@ -1,0 +1,17 @@
+# --- Frontend DEBUG: next dev + turbopack с hot-reload ---
+# Источники приходят bind-mount'ом из compose, node_modules — в анонимном
+# volume (иначе bind-mount маскирует musl-бинари next-swc хостовыми).
+FROM oven/bun:1-alpine
+WORKDIR /app
+
+# libc6-compat — официальная рекомендация Next.js для Alpine (next-swc).
+RUN apk add --no-cache libc6-compat
+
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile || bun install
+
+EXPOSE 3000
+ENV NODE_ENV=development \
+    NEXT_TELEMETRY_DISABLED=1
+
+CMD ["bun", "--bun", "run", "next", "dev", "--turbopack", "-H", "0.0.0.0", "-p", "3000"]

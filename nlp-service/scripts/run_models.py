@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test: загружает все три модели и прогоняет N примеров"""
+"""Smoke-test: прогон через реальный pipeline (с confidence-gate и валидацией тезисов)"""
 
 import argparse
 import json
@@ -28,35 +28,48 @@ def load_models():
 
 
 def run(text: str, clf, proc, matcher) -> None:
+    from service.pipeline import run_pipeline
+
     width = 65
     print("\n" + "=" * width)
     print(f"  текст: {text}")
     print("=" * width)
 
-    is_imp, conf = clf.predict(text)
-    print(f"  is_important : {is_imp}")
-    print(f"  confidence   : {conf:.4f}")
+    result = run_pipeline(text, None, clf, proc, matcher)
 
-    if not is_imp:
-        print("  (обращение неважное — seq2seq и категория не запускаются)")
+    print(f"  is_important : {result['is_important']}")
+    print(f"  confidence   : {result['important_confidence']:.4f}")
+    print(f"  reason       : {result['reason']}")
+
+    if not result["is_important"]:
         print("=" * width)
         return
 
-    formalized = proc.formalize(text)
-    theses = proc.extract_theses(text)
-    category, subcategory = matcher.match(text, formalized)
+    # При срабатывании confidence-gate pipeline возвращает пустые поля.
+    if not result["category"] and not result["theses"]:
+        print("  (низкая уверенность — seq2seq и категория пропущены)")
+        print("=" * width)
+        return
 
-    print(f"  formalized   : {formalized}")
-    for i, t in enumerate(theses, 1):
-        label = "  theses      :" if i == 1 else "               "
-        print(f"{label} {t}")
-    print(f"  category     : {category['name'] if category else '—'}")
-    print(f"  subcategory  : {subcategory['name'] if subcategory else '—'}")
+    print(f"  formalized   : {result['formalized_text']}")
+    if result["theses"]:
+        for i, t in enumerate(result["theses"], 1):
+            label = "  theses      :" if i == 1 else "               "
+            print(f"{label} {t}")
+    else:
+        print("  theses      : —  (все тезисы отфильтрованы валидатором)")
+    print(f"  category     : {result['category']['name'] if result['category'] else '—'}")
+    print(f"  subcategory  : {result['subcategory']['name'] if result['subcategory'] else '—'}")
     print("=" * width)
 
 
 def pick_random(n: int) -> list[str]:
-    lines = DATASET_PATH.read_text(encoding="utf-8").splitlines()
+    # Первая строка — meta-запись, её отфильтровываем.
+    lines = [
+        line
+        for line in DATASET_PATH.read_text(encoding="utf-8").splitlines()
+        if line.strip() and "messages" in line
+    ]
     samples = random.sample(lines, min(n, len(lines)))
     texts = []
     for line in samples:

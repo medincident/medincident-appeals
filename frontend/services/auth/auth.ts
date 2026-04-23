@@ -13,9 +13,11 @@ const OIDC_SCOPES = [
 // Жёсткий потолок для хранимого expiresAt. Refresh — единственная «настоящая»
 // проверка авторизации у нас (userinfo мы НЕ дёргаем на каждом запросе),
 // поэтому гарантируем, что он вызывается не реже чем раз в ACCESS_TOKEN_MAX_AGE.
-// Если Zitadel отвечает, что токен живёт дольше — всё равно обновим раньше;
-// если короче — используем его срок.
-const ACCESS_TOKEN_MAX_AGE_MS = 5 * 60 * 1000;
+// 60s = максимальная задержка между revoke-сессией в Zitadel и разлогиниванием
+// пользователя тут (при revoke refresh_token падает → RefreshAccessTokenError →
+// SessionGuard покажет диалог).
+// Синхронизировать с refetchInterval в SessionProvider (app/providers.tsx).
+const ACCESS_TOKEN_MAX_AGE_MS = 60 * 1000;
 
 function boundExpiresAt(raw: number | undefined): number {
   const ceil = Date.now() + ACCESS_TOKEN_MAX_AGE_MS;

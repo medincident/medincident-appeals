@@ -13,9 +13,8 @@ from paths import CACHE_DIR, TRAINED_CLASSIFIER_DIR
 logger = logging.getLogger(__name__)
 
 BASE_MODEL = "cointegrated/rubert-tiny2"
-
 ID2LABEL = {0: "not_important", 1: "important"}
-LABEL2ID = {"not_important": 0, "important": 1}
+LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 
 
 class ImportanceClassifier:
@@ -59,7 +58,6 @@ class ImportanceClassifier:
         )
 
     def predict(self, text: str) -> tuple[bool, float]:
-        """Returns (is_important, confidence [0, 1])."""
         assert self.model is not None, "Call load() first"
 
         inputs = self.tokenizer(
@@ -75,7 +73,7 @@ class ImportanceClassifier:
 
         probs = torch.softmax(logits, dim=-1).squeeze()
         label_id = int(probs.argmax())
+
         confidence = float(probs[label_id])
         is_important = label_id == LABEL2ID["important"]
-
         return is_important, confidence

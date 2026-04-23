@@ -4,8 +4,20 @@
 
 import argparse
 import logging
+from typing import NamedTuple
 
-from models import get_device, load_examples, split_by_templates
+import numpy as np
+import torch
+from sklearn.metrics import f1_score
+from torch.utils.data import Dataset
+from transformers import (
+    AutoModelForSequenceClassification,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+)
+
+from models import Example, get_device, load_examples, split_by_templates
 from paths import CACHE_DIR, DATASET_PATH, TRAINED_CLASSIFIER_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -15,12 +27,15 @@ BASE_MODEL = "cointegrated/rubert-tiny2"
 OUTPUT_DIR = TRAINED_CLASSIFIER_DIR
 
 
-def tokenize(tokenizer, texts: list[str], labels: list[int], max_len: int):
-    import torch
-    from torch.utils.data import Dataset
 
+class Split(NamedTuple):
+    texts: list[str]
+    labels: list[int]
+
+
+def tokenize(tokenizer, split: Split, max_len: int) -> Dataset:
     encodings = tokenizer(
-        texts,
+        split.texts,
         truncation=True,
         padding=True,
         max_length=max_len,
@@ -29,76 +44,94 @@ def tokenize(tokenizer, texts: list[str], labels: list[int], max_len: int):
 
     class _DS(Dataset):
         def __len__(self):
-            return len(labels)
+            return len(split.labels)
 
         def __getitem__(self, idx):
             return {
                 "input_ids": encodings["input_ids"][idx],
                 "attention_mask": encodings["attention_mask"][idx],
-                "labels": torch.tensor(labels[idx], dtype=torch.long),
+                "labels": torch.tensor(split.labels[idx], dtype=torch.long),
             }
 
     return _DS()
 
 
-def compute_metrics(eval_pred):
-    import numpy as np
-    from sklearn.metrics import f1_score
-
-    logits, labels = eval_pred
-    preds = np.argmax(logits, axis=-1)
-    f1 = f1_score(labels, preds, average="binary")
-    acc = (preds == labels).mean()
-    return {"accuracy": float(acc), "f1": float(f1)}
+def compute_metrics(eval_prediction):
+    logits, labels = eval_prediction
+    predictions = np.argmax(logits, axis=-1)
+    return {
+        "accuracy": float((predictions == labels).mean()),
+        "f1": float(f1_score(labels, predictions, average="binary")),
+    }
 
 
-def train(args: argparse.Namespace) -> None:
-    import torch
-    from transformers import (
-        AutoModelForSequenceClassification,
-        AutoTokenizer,
-        Trainer,
-        TrainingArguments,
-    )
-
-    logger.info("Loading tokenizer: %s", BASE_MODEL)
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
-
-    examples = load_examples(DATASET_PATH)
+def build_splits(examples: list[Example], val_ratio: float, test_ratio: float) -> tuple[Split, Split, Split]:
     texts = [ex.text for ex in examples]
     labels = [1 if ex.answer["is_important"] else 0 for ex in examples]
     template_ids = [ex.template_id for ex in examples]
 
     logger.info(
         "Dataset: %d examples (important=%d, not=%d, templates=%d)",
-        len(labels),
-        sum(labels),
-        len(labels) - sum(labels),
-        len(set(template_ids)),
+        len(labels), sum(labels), len(labels) - sum(labels), len(set(template_ids)),
     )
 
     train_idx, val_idx, test_idx = split_by_templates(
-        template_ids,
-        val_ratio=args.val_ratio,
-        test_ratio=args.test_ratio,
+        template_ids, val_ratio=val_ratio, test_ratio=test_ratio,
     )
 
-    train_texts = [texts[i] for i in train_idx]
-    train_labels = [labels[i] for i in train_idx]
-    val_texts = [texts[i] for i in val_idx]
-    val_labels = [labels[i] for i in val_idx]
-    test_texts = [texts[i] for i in test_idx]
-    test_labels = [labels[i] for i in test_idx]
+    def take(idx: list[int]) -> Split:
+        return Split(texts=[texts[i] for i in idx], labels=[labels[i] for i in idx])
 
+    train, val, test = take(train_idx), take(val_idx), take(test_idx)
     logger.info(
         "Split by templates: Train=%d  Val=%d  Test=%d (hold-out)",
-        len(train_labels),
-        len(val_labels),
-        len(test_labels),
+        len(train.labels), len(val.labels), len(test.labels),
     )
+    return train, val, test
 
-    train_ds = tokenize(tokenizer, train_texts, train_labels, args.max_len)
-    val_ds = tokenize(tokenizer, val_texts, val_labels, args.max_len)
+
+def class_weights(labels: list[int]) -> torch.Tensor:
+    n = len(labels)
+    n_pos = sum(labels)
+    n_neg = n - n_pos
+    return torch.tensor([n / (2 * n_neg), n / (2 * n_pos)], dtype=torch.float)
+
+
+def device_info(requested: str | None) -> tuple[str, str, bool]:
+    """Возвращает (device, human_label, use_fp16)."""
+    chosen = get_device(requested)
+    if requested == "cuda" and not torch.cuda.is_available():
+        logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
+    if chosen == "cuda":
+        return chosen, f"GPU ({torch.cuda.get_device_name(0)})", True
+    if chosen == "mps":
+        return chosen, "MPS (Apple Silicon)", False
+    return chosen, "CPU", False
+
+
+class WeightedTrainer(Trainer):
+    def __init__(self, class_weights: torch.Tensor, **kwargs):
+        super().__init__(**kwargs)
+        self._class_weights = class_weights.to(next(self.model.parameters()).device)
+
+    def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        loss = torch.nn.functional.cross_entropy(
+            outputs.logits, labels, weight=self._class_weights,
+        )
+        return (loss, outputs) if return_outputs else loss
+
+
+def train(args: argparse.Namespace) -> None:
+    logger.info("Loading tokenizer: %s", BASE_MODEL)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
+
+    examples = load_examples(DATASET_PATH)
+    train_split, val_split, test_split = build_splits(examples, args.val_ratio, args.test_ratio)
+
+    train_dataset = tokenize(tokenizer, train_split, args.max_len)
+    eval_dataset = tokenize(tokenizer, val_split, args.max_len)
 
     model = AutoModelForSequenceClassification.from_pretrained(
         BASE_MODEL,
@@ -109,70 +142,36 @@ def train(args: argparse.Namespace) -> None:
         ignore_mismatched_sizes=True,
     )
 
-    chosen = get_device(args.device)
-    if args.device == "cuda" and not torch.cuda.is_available():
-        logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
-
-    if chosen == "cuda":
-        device_label = f"GPU ({torch.cuda.get_device_name(0)})"
-        use_fp16 = True
-    elif chosen == "mps":
-        device_label = "MPS (Apple Silicon)"
-        use_fp16 = False
-    else:
-        device_label = "CPU"
-        use_fp16 = False
+    _, device_label, use_fp16 = device_info(args.device)
     logger.info("Device: %s", device_label)
 
-    # Датасет несбалансирован (75% important / 25% not). Веса обратно пропорциональны
-    # частоте — компенсируют дисбаланс в CrossEntropy.
-    n_total = len(train_labels)
-    n_imp = sum(train_labels)
-    n_not = n_total - n_imp
-    class_weights = torch.tensor(
-        [n_total / (2 * n_not), n_total / (2 * n_imp)],
-        dtype=torch.float,
-    )
+    weights = class_weights(train_split.labels)
     logger.info(
         "Class weights: not_important=%.3f  important=%.3f",
-        class_weights[0].item(),
-        class_weights[1].item(),
+        weights[0].item(), weights[1].item(),
     )
-
-    training_args = TrainingArguments(
-        output_dir=str(OUTPUT_DIR),
-        num_train_epochs=args.epochs,
-        per_device_train_batch_size=args.batch,
-        per_device_eval_batch_size=args.batch * 2,
-        learning_rate=args.lr,
-        weight_decay=0.01,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        metric_for_best_model="f1",
-        logging_steps=20,
-        warmup_ratio=0.1,
-        fp16=use_fp16,
-        report_to="none",
-    )
-
-    class WeightedTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
-            labels = inputs.pop("labels")
-            outputs = model(**inputs)
-            logits = outputs.logits
-            loss = torch.nn.functional.cross_entropy(
-                logits,
-                labels,
-                weight=class_weights.to(logits.device),
-            )
-            return (loss, outputs) if return_outputs else loss
 
     trainer = WeightedTrainer(
+        class_weights=weights,
         model=model,
-        args=training_args,
-        train_dataset=train_ds,
-        eval_dataset=val_ds,
+        args=TrainingArguments(
+            output_dir=str(OUTPUT_DIR),
+            num_train_epochs=args.epochs,
+            per_device_train_batch_size=args.batch,
+            per_device_eval_batch_size=args.batch * 2,
+            learning_rate=args.lr,
+            weight_decay=0.01,
+            eval_strategy="epoch",
+            save_strategy="epoch",
+            load_best_model_at_end=True,
+            metric_for_best_model="f1",
+            logging_steps=20,
+            warmup_ratio=0.1,
+            fp16=use_fp16,
+            report_to="none",
+        ),
+        train_dataset=train_dataset,
+        eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
     )
 
@@ -183,20 +182,18 @@ def train(args: argparse.Namespace) -> None:
     trainer.save_model(str(OUTPUT_DIR))
     tokenizer.save_pretrained(str(OUTPUT_DIR))
 
-    metrics = trainer.evaluate()
+    val_metrics = trainer.evaluate()
     logger.info(
         "Val metrics: accuracy=%.4f  f1=%.4f",
-        metrics["eval_accuracy"],
-        metrics["eval_f1"],
+        val_metrics["eval_accuracy"], val_metrics["eval_f1"],
     )
 
-    if test_texts:
-        test_ds = tokenize(tokenizer, test_texts, test_labels, args.max_len)
-        test_metrics = trainer.evaluate(eval_dataset=test_ds, metric_key_prefix="test")
+    if test_split.texts:
+        test_dataset = tokenize(tokenizer, test_split, args.max_len)
+        test_metrics = trainer.evaluate(eval_dataset=test_dataset, metric_key_prefix="test")
         logger.info(
             "Test metrics (hold-out): accuracy=%.4f  f1=%.4f",
-            test_metrics["test_accuracy"],
-            test_metrics["test_f1"],
+            test_metrics["test_accuracy"], test_metrics["test_f1"],
         )
 
     logger.info("Done. Model saved to %s", OUTPUT_DIR)

@@ -4,12 +4,10 @@ load_models.py — скачивает и кэширует все три моде
 
 Запуск: python3 scripts/load_models.py
 
-Размеры:
-  rubert-tiny2                              ~29  MB
-  rut5-base-multitask                       ~222 MB
-  paraphrase-multilingual-MiniLM-L12-v2    ~117 MB
-  ──────────────────────────────────────────────────
-  Итого                                     ~368 MB
+Размеры (Всего: 368 MB):
+  rubert-tiny2 29  MB
+  rut5-base-multitask 222 MB
+  paraphrase-multilingual-MiniLM-L12-v2 117 MB
 """
 
 from paths import CACHE_DIR
@@ -17,10 +15,9 @@ from paths import CACHE_DIR
 CACHE_DIR.mkdir(exist_ok=True)
 
 
-def load_classifier() -> None:
+def load_classifier(model_id: str) -> None:
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-    model_id = "cointegrated/rubert-tiny2"
     print("  Токенизатор...", flush=True)
     AutoTokenizer.from_pretrained(model_id, cache_dir=CACHE_DIR)
     print("  Модель...", flush=True)
@@ -32,21 +29,19 @@ def load_classifier() -> None:
     )
 
 
-def load_seq2seq() -> None:
+def load_seq2seq(model_id: str) -> None:
     import sentencepiece  # noqa: F401 — проверяем что установлен
     from transformers import T5ForConditionalGeneration, T5Tokenizer
 
-    model_id = "cointegrated/rut5-base-multitask"
     print("  Токенизатор (T5Tokenizer + SentencePiece)...", flush=True)
     T5Tokenizer.from_pretrained(model_id, cache_dir=CACHE_DIR)
     print("  Модель...", flush=True)
     T5ForConditionalGeneration.from_pretrained(model_id, cache_dir=CACHE_DIR)
 
 
-def load_similarity() -> None:
+def load_similarity(model_id: str) -> None:
     from sentence_transformers import SentenceTransformer
 
-    model_id = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     print("  Модель...", flush=True)
     SentenceTransformer(model_id, cache_folder=str(CACHE_DIR))
 
@@ -77,7 +72,7 @@ def main() -> None:
         print(f"[{model_id}]")
         print(f"  {description}")
         try:
-            loader()
+            loader(model_id)
             print("  OK\n")
         except Exception as e:
             print(f"  ОШИБКА: {e}\n")
