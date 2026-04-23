@@ -1,4 +1,4 @@
-"""ImportanceClassifier на rubert-tiny2 — бинарная классификация важности обращения."""
+"""ImportanceClassifier на rubert-base-cased-conversational — бинарная классификация важности обращения."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from paths import CACHE_DIR, TRAINED_CLASSIFIER_DIR
 
 logger = logging.getLogger(__name__)
 
-BASE_MODEL = "cointegrated/rubert-tiny2"
+BASE_MODEL = "DeepPavlov/rubert-base-cased-conversational"
 ID2LABEL = {0: "not_important", 1: "important"}
 LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 

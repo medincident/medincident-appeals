@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-classifier_bench.py — бенчмарк ImportanceClassifier (rubert-tiny2).
+classifier_bench.py — бенчмарк ImportanceClassifier (rubert-base-cased-conversational).
 
 Считает на test hold-out:
   - Quality: accuracy, F1 (macro + binary), precision, recall
@@ -27,12 +27,12 @@ from benchmarks import (
     percentile,
     write_result,
 )
+from models.classifier import BASE_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "classifier"
-BASE_MODEL_ID = "cointegrated/rubert-tiny2"
 
 
 def run(limit: int | None = None) -> str:
@@ -74,7 +74,7 @@ def run(limit: int | None = None) -> str:
     prec = precision_score(labels, preds, average="macro", zero_division=0)
     rec = recall_score(labels, preds, average="macro", zero_division=0)
 
-    disk_bytes = measure_model_disk_size(BASE_MODEL_ID)
+    disk_bytes = measure_model_disk_size(BASE_MODEL)
     mem = measure_process_memory()
 
     avg_ms = sum(latencies) / len(latencies) * 1000

@@ -4,12 +4,15 @@ load_models.py — скачивает и кэширует все три моде
 
 Запуск: python3 scripts/load_models.py
 
-Размеры (Всего: 368 MB):
-  rubert-tiny2 29  MB
-  rut5-base-multitask 222 MB
+Размеры (Всего: ~1.04 GB):
+  rubert-base-cased-conversational ~700 MB
+  rut5-base-multitask               222 MB
   paraphrase-multilingual-MiniLM-L12-v2 117 MB
 """
 
+from models.classifier import BASE_MODEL as CLASSIFIER_MODEL
+from models.seq2seq import BASE_MODEL as SEQ2SEQ_MODEL
+from models.similarity import BASE_MODEL as SIMILARITY_MODEL
 from paths import CACHE_DIR
 
 CACHE_DIR.mkdir(exist_ok=True)
@@ -47,21 +50,9 @@ def load_similarity(model_id: str) -> None:
 
 
 MODELS = [
-    (
-        "cointegrated/rubert-tiny2",
-        "Классификатор важности (is_important)",
-        load_classifier,
-    ),
-    (
-        "cointegrated/rut5-base-multitask",
-        "Формализация + тезисы",
-        load_seq2seq,
-    ),
-    (
-        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-        "Category similarity",
-        load_similarity,
-    ),
+    (CLASSIFIER_MODEL, "Классификатор важности (is_important)", load_classifier),
+    (SEQ2SEQ_MODEL, "Формализация + тезисы", load_seq2seq),
+    (SIMILARITY_MODEL, "Category similarity", load_similarity),
 ]
 
 

@@ -1,3 +1,3 @@
-from .model import CategoryMatcher
+from .model import BASE_MODEL, CategoryMatcher
 
-__all__ = ["CategoryMatcher"]
+__all__ = ["BASE_MODEL", "CategoryMatcher"]

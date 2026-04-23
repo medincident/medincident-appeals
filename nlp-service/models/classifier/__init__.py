@@ -1,3 +1,3 @@
-from .model import ImportanceClassifier
+from .model import BASE_MODEL, ImportanceClassifier
 
-__all__ = ["ImportanceClassifier"]
+__all__ = ["BASE_MODEL", "ImportanceClassifier"]

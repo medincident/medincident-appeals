@@ -27,12 +27,12 @@ from benchmarks import (
     percentile,
     write_result,
 )
+from models.seq2seq import BASE_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "seq2seq"
-BASE_MODEL_ID = "cointegrated/rut5-base-multitask"
 
 
 def _make_rouge_scorer():
@@ -98,7 +98,7 @@ def run(limit: int | None = None) -> str:
     def avg(xs: list[float]) -> float:
         return sum(xs) / len(xs) if xs else 0.0
 
-    disk_bytes = measure_model_disk_size(BASE_MODEL_ID)
+    disk_bytes = measure_model_disk_size(BASE_MODEL)
     mem = measure_process_memory()
 
     avg_ms = avg(latencies) * 1000

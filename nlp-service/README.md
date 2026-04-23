@@ -6,7 +6,7 @@ NLP-пайплайн для обработки обращений пациент
 
 | Этап | Модель | Задача | Размер |
 |------|--------|--------|--------|
-| 1 | `cointegrated/rubert-tiny2` | `is_important` (binary) | 29 MB |
+| 1 | `DeepPavlov/rubert-base-cased-conversational` | `is_important` (binary) | ~700 MB |
 | 2 | `cointegrated/rut5-base-multitask` | `formalized_text` + `theses` | 222 MB |
 | 3 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | `category` + `subcategory` (zero-shot) | 117 MB |
 
@@ -109,7 +109,7 @@ nlp-service/
 ├── models/
 │   ├── __init__.py                 # реэкспорт + get_device()
 │   ├── shared.py                   # loader + split_by_templates
-│   ├── classifier/{model,train}.py # rubert-tiny2
+│   ├── classifier/{model,train}.py # rubert-base-cased-conversational
 │   ├── seq2seq/{model,train}.py    # rut5
 │   └── similarity/model.py         # MiniLM (zero-shot, без train)
 ├── scripts/

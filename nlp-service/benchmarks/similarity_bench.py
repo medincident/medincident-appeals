@@ -31,13 +31,13 @@ from benchmarks import (
     percentile,
     write_result,
 )
+from models.similarity import BASE_MODEL
 from paths import ensure_categories_service_on_path
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 MODEL_NAME = "similarity"
-BASE_MODEL_ID = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 
 def run(limit: int | None = None) -> str:
@@ -89,7 +89,7 @@ def run(limit: int | None = None) -> str:
     cat_acc = cat_correct / cat_total if cat_total else 0.0
     sub_acc = sub_correct / sub_total if sub_total else 0.0
 
-    disk_bytes = measure_model_disk_size(BASE_MODEL_ID)
+    disk_bytes = measure_model_disk_size(BASE_MODEL)
     mem = measure_process_memory()
 
     avg_ms = sum(latencies) / len(latencies) * 1000 if latencies else 0.0

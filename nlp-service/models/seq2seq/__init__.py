@@ -1,3 +1,3 @@
-from .model import TextProcessor
+from .model import BASE_MODEL, TextProcessor
 
-__all__ = ["TextProcessor"]
+__all__ = ["BASE_MODEL", "TextProcessor"]

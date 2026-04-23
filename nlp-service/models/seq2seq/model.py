@@ -55,9 +55,7 @@ def _is_valid_thesis(thesis: str, original: str, formalized: str | None) -> bool
         return False
     if _token_containment(thesis, original) > _MAX_ORIGINAL_OVERLAP:
         return False
-    if formalized and _token_containment(thesis, formalized) > _MAX_FORMALIZED_OVERLAP:
-        return False
-    return True
+    return not (formalized and _token_containment(thesis, formalized) > _MAX_FORMALIZED_OVERLAP)
 
 
 class TextProcessor:

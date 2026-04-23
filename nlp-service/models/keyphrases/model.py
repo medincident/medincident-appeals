@@ -143,7 +143,7 @@ class MedicalKeyphraseExtractor:
         if not keep_mask.any():
             return []
 
-        filtered_candidates = [c for c, k in zip(candidates, keep_mask) if k]
+        filtered_candidates = [c for c, k in zip(candidates, keep_mask, strict=True) if k]
         filtered_embeddings = cand_embeddings[keep_mask]
         filtered_relevance = relevance[keep_mask]
 

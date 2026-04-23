@@ -7,12 +7,12 @@ import argparse
 import logging
 
 from models import Example, get_device, load_examples, split_by_templates
+from models.seq2seq import BASE_MODEL
 from paths import CACHE_DIR, DATASET_PATH, TRAINED_SEQ2SEQ_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-BASE_MODEL = "cointegrated/rut5-base-multitask"
 OUTPUT_DIR = TRAINED_SEQ2SEQ_DIR
 
 
@@ -168,18 +168,20 @@ def train(args: argparse.Namespace) -> None:
     logger.info("Loading model: %s", BASE_MODEL)
     model = T5ForConditionalGeneration.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
 
-    chosen = get_device(args.device)
+    device = get_device(args.device)
     if args.device == "cuda" and not torch.cuda.is_available():
         logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
 
-    if chosen == "cuda":
-        device_label = f"GPU ({torch.cuda.get_device_name(0)})"
+    if device == "cuda":
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        device_label = f"GPU ({gpu_name}, {gpu_mem_gb:.1f} GB, fp16)"
         use_fp16 = True
-    elif chosen == "mps":
-        device_label = "MPS (Apple Silicon)"
+    elif device == "mps":
+        device_label = "MPS (Apple Silicon, fp32)"
         use_fp16 = False
     else:
-        device_label = "CPU"
+        device_label = "CPU (fp32)"
         use_fp16 = False
     logger.info("Device: %s", device_label)
 
@@ -200,6 +202,7 @@ def train(args: argparse.Namespace) -> None:
         logging_steps=50,
         warmup_ratio=0.05,
         fp16=use_fp16,
+        use_cpu=(device == "cpu"),
         report_to="none",
     )
 
@@ -215,6 +218,11 @@ def train(args: argparse.Namespace) -> None:
         data_collator=collator,
         compute_metrics=epoch_metrics_fn,
     )
+
+    actual_device = next(trainer.model.parameters()).device
+    logger.info("Model actually on: %s", actual_device)
+    if device == "cuda" and actual_device.type != "cuda":
+        logger.warning("Ожидался CUDA, но модель на %s — проверь окружение", actual_device)
 
     logger.info("Training started...")
     trainer.train()

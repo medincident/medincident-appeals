@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fine-tune rubert-tiny2 на бинарную классификацию important/not_important.
-Результат: trained_models/classifier/. CPU ~20мин, GPU ~3мин."""
+"""Fine-tune rubert-base-cased-conversational на бинарную классификацию important/not_important.
+Результат: trained_models/classifier/. CPU ~1.5ч, GPU ~15мин."""
 
 import argparse
 import logging
@@ -13,17 +13,18 @@ from torch.utils.data import Dataset
 from transformers import (
     AutoModelForSequenceClassification,
     AutoTokenizer,
+    EarlyStoppingCallback,
     Trainer,
     TrainingArguments,
 )
 
 from models import Example, get_device, load_examples, split_by_templates
+from models.classifier import BASE_MODEL
 from paths import CACHE_DIR, DATASET_PATH, TRAINED_CLASSIFIER_DIR
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-BASE_MODEL = "cointegrated/rubert-tiny2"
 OUTPUT_DIR = TRAINED_CLASSIFIER_DIR
 
 
@@ -103,10 +104,12 @@ def device_info(requested: str | None) -> tuple[str, str, bool]:
     if requested == "cuda" and not torch.cuda.is_available():
         logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
     if chosen == "cuda":
-        return chosen, f"GPU ({torch.cuda.get_device_name(0)})", True
+        gpu_name = torch.cuda.get_device_name(0)
+        gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        return chosen, f"GPU ({gpu_name}, {gpu_mem_gb:.1f} GB, fp16)", True
     if chosen == "mps":
-        return chosen, "MPS (Apple Silicon)", False
-    return chosen, "CPU", False
+        return chosen, "MPS (Apple Silicon, fp32)", False
+    return chosen, "CPU (fp32)", False
 
 
 class WeightedTrainer(Trainer):
@@ -118,7 +121,10 @@ class WeightedTrainer(Trainer):
         labels = inputs.pop("labels")
         outputs = model(**inputs)
         loss = torch.nn.functional.cross_entropy(
-            outputs.logits, labels, weight=self._class_weights,
+            outputs.logits,
+            labels,
+            weight=self._class_weights,
+            label_smoothing=self.args.label_smoothing_factor,
         )
         return (loss, outputs) if return_outputs else loss
 
@@ -142,7 +148,7 @@ def train(args: argparse.Namespace) -> None:
         ignore_mismatched_sizes=True,
     )
 
-    _, device_label, use_fp16 = device_info(args.device)
+    device, device_label, use_fp16 = device_info(args.device)
     logger.info("Device: %s", device_label)
 
     weights = class_weights(train_split.labels)
@@ -151,6 +157,7 @@ def train(args: argparse.Namespace) -> None:
         weights[0].item(), weights[1].item(),
     )
 
+    patience = min(args.patience, args.epochs - 1)
     trainer = WeightedTrainer(
         class_weights=weights,
         model=model,
@@ -161,6 +168,7 @@ def train(args: argparse.Namespace) -> None:
             per_device_eval_batch_size=args.batch * 2,
             learning_rate=args.lr,
             weight_decay=0.01,
+            label_smoothing_factor=args.label_smoothing,
             eval_strategy="epoch",
             save_strategy="epoch",
             load_best_model_at_end=True,
@@ -168,12 +176,23 @@ def train(args: argparse.Namespace) -> None:
             logging_steps=20,
             warmup_ratio=0.1,
             fp16=use_fp16,
+            use_cpu=(device == "cpu"),
             report_to="none",
         ),
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         compute_metrics=compute_metrics,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
     )
+    logger.info(
+        "Regularization: label_smoothing=%.2f  early_stopping_patience=%d",
+        args.label_smoothing, patience,
+    )
+
+    actual_device = next(trainer.model.parameters()).device
+    logger.info("Model actually on: %s", actual_device)
+    if device == "cuda" and actual_device.type != "cuda":
+        logger.warning("Ожидался CUDA, но модель на %s — проверь окружение", actual_device)
 
     logger.info("Training started...")
     trainer.train()
@@ -200,7 +219,7 @@ def train(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune rubert-tiny2 importance classifier")
+    parser = argparse.ArgumentParser(description="Fine-tune rubert-base-cased-conversational importance classifier")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--batch", type=int, default=32)
@@ -208,6 +227,10 @@ def main() -> None:
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None)
+    parser.add_argument("--label-smoothing", type=float, default=0.1,
+                        help="Смягчение таргетов для борьбы с overconfidence (0.0–0.2)")
+    parser.add_argument("--patience", type=int, default=1,
+                        help="Early stopping: сколько эпох без улучшения F1 до остановки")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
