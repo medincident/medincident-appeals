@@ -1,11 +1,8 @@
 // Валидация access-токенов Zitadel через OIDC /userinfo.
 //
-// Раньше здесь был оффлайн JWT-валидатор (JWKS + keyfunc). Он подходит, если
-// Zitadel настроен отдавать JWT-access_token, но дефолтное поведение — opaque
-// bearer, и тогда jwt.Parse ругается «token contains an invalid number of
-// segments». Чтобы не завязываться на конфиг Zitadel, валидируем токен
-// через /oidc/v1/userinfo: endpoint принимает и JWT, и opaque, возвращает sub.
-// Результаты кэшируем на короткое окно, иначе был бы HTTP-hop на каждый запрос.
+// Zitadel по умолчанию отдаёт opaque bearer вместо JWT, поэтому вместо
+// JWKS-валидатора зовём /oidc/v1/userinfo (он принимает и JWT, и opaque).
+// Результаты кэшируем на короткое окно — иначе HTTP-hop на каждом запросе.
 package main
 
 import (
@@ -48,18 +45,16 @@ func NewAuth(_ context.Context, issuer string) (*Auth, error) {
 	}, nil
 }
 
-// VerifiedSubject — возвращает `sub` (Zitadel user id). Кэш исключает сетевой
-// round-trip на каждом запросе; при промахе — идём в /userinfo с тем же
-// Bearer, что прислал клиент.
-func (a *Auth) VerifiedSubject(r *http.Request) (string, error) {
-	auth := r.Header.Get("Authorization")
-	if auth == "" {
+// VerifiedSubject принимает значение заголовка Authorization (сырой "Bearer <token>")
+// и возвращает Zitadel sub. При кэш-хите — без сетевого обращения.
+func (a *Auth) VerifiedSubject(ctx context.Context, authHeader string) (string, error) {
+	if authHeader == "" {
 		return "", errors.New("missing Authorization header")
 	}
-	if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
+	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
 		return "", errors.New("Authorization must be a Bearer token")
 	}
-	token := strings.TrimSpace(auth[len("Bearer "):])
+	token := strings.TrimSpace(authHeader[len("Bearer "):])
 	if token == "" {
 		return "", errors.New("empty bearer token")
 	}
@@ -68,7 +63,7 @@ func (a *Auth) VerifiedSubject(r *http.Request) (string, error) {
 		return sub, nil
 	}
 
-	sub, err := a.fetchSubject(r.Context(), token)
+	sub, err := a.fetchSubject(ctx, token)
 	if err != nil {
 		return "", err
 	}
@@ -93,9 +88,7 @@ func (a *Auth) cacheGet(token string) (string, bool) {
 func (a *Auth) cachePut(token, sub string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	// Простейший ограничитель роста — кэш для единственного процесса,
-	// токены небольшие (<2KB), 10k записей это <20MB. На практике записей
-	// столько, сколько одновременно активных сессий.
+	// Простейший ограничитель роста: один процесс, токены ~2KB, 10k ≈ <20MB.
 	if len(a.cache) > 10_000 {
 		for k := range a.cache {
 			delete(a.cache, k)
@@ -119,10 +112,10 @@ func (a *Auth) fetchSubject(ctx context.Context, token string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized {
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
 		return "", errors.New("userinfo: token rejected")
-	}
-	if resp.StatusCode != http.StatusOK {
+	case resp.StatusCode != http.StatusOK:
 		return "", fmt.Errorf("userinfo returned %d", resp.StatusCode)
 	}
 

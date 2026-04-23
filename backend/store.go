@@ -1,10 +1,7 @@
 // Postgres-хранилище обработанных обращений.
-//
-// Схема одной таблицы `appeals`: каждая строка — один инцидент, обработанный
-// NLP-пайплайном. `user_id` хранит Zitadel subject, по которому REST-endpoint
-// фильтрует. Категория/подкатегория денормализованы в имя+id — чтобы в
-// списке не ходить в отдельный справочник, и чтобы сохранялось имя на
-// момент обработки, даже если справочник потом поменяется.
+// Одна таблица `appeals`: строка = один инцидент, обработанный NLP. user_id —
+// Zitadel sub, по нему фильтруется REST. Category/subcategory денормализованы
+// (id+name) — в списке не ходим в справочник, имя фиксируется на момент обработки.
 package main
 
 import (
@@ -15,8 +12,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+const (
+	dbConnectAttempts = 20
+	dbConnectDelay    = 2 * time.Second
+	dbMaxConns        = 10
+	defaultListLimit  = 200
+	maxListLimit      = 500
 )
 
 const schemaSQL = `
@@ -45,26 +49,24 @@ CREATE INDEX IF NOT EXISTS appeals_user_category_idx
     ON appeals(user_id, category_id);
 `
 
-// AppealRow — как хранится в Postgres (snake_case из JSON == column name).
 type AppealRow struct {
-	ID                  string     `json:"id"`
-	UserID              string     `json:"user_id"`
-	Text                string     `json:"text"`
-	Summary             string     `json:"summary"`
-	FormalizedText      string     `json:"formalized_text"`
-	IsImportant         bool       `json:"is_important"`
-	ImportantConfidence *float64   `json:"important_confidence,omitempty"`
-	Reason              string     `json:"reason"`
-	Theses              []string   `json:"theses"`
-	CategoryID          *string    `json:"category_id,omitempty"`
-	CategoryName        *string    `json:"category_name,omitempty"`
-	SubcategoryID       *string    `json:"subcategory_id,omitempty"`
-	SubcategoryName     *string    `json:"subcategory_name,omitempty"`
-	Status              string     `json:"status"`
-	CreatedAt           time.Time  `json:"created_at"`
+	ID                  string    `json:"id"`
+	UserID              string    `json:"user_id"`
+	Text                string    `json:"text"`
+	Summary             string    `json:"summary"`
+	FormalizedText      string    `json:"formalized_text"`
+	IsImportant         bool      `json:"is_important"`
+	ImportantConfidence *float64  `json:"important_confidence,omitempty"`
+	Reason              string    `json:"reason"`
+	Theses              []string  `json:"theses"`
+	CategoryID          *string   `json:"category_id,omitempty"`
+	CategoryName        *string   `json:"category_name,omitempty"`
+	SubcategoryID       *string   `json:"subcategory_id,omitempty"`
+	SubcategoryName     *string   `json:"subcategory_name,omitempty"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
 }
 
-// ListFilter — параметры для GET /users/:id/appeals.
 type ListFilter struct {
 	UserID        string
 	Search        string
@@ -77,31 +79,29 @@ type Store struct {
 	pool *pgxpool.Pool
 }
 
-// NewStore — открывает пул, делает миграцию. Retry на первый connect,
-// потому что Postgres может быть не готов в момент старта даже с healthcheck.
+// NewStore открывает пул и накатывает миграцию. Ретраит первый connect —
+// Postgres может быть не готов в момент старта даже с healthcheck.
 func NewStore(ctx context.Context, dsn string) (*Store, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse DATABASE_URL: %w", err)
 	}
-	cfg.MaxConns = 10
+	cfg.MaxConns = dbMaxConns
 
 	var pool *pgxpool.Pool
-	for attempt := 1; attempt <= 20; attempt++ {
+	for range dbConnectAttempts {
 		pool, err = pgxpool.NewWithConfig(ctx, cfg)
 		if err == nil {
-			if pingErr := pool.Ping(ctx); pingErr == nil {
+			if err = pool.Ping(ctx); err == nil {
 				break
-			} else {
-				err = pingErr
-				pool.Close()
-				pool = nil
 			}
+			pool.Close()
+			pool = nil
 		}
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-time.After(dbConnectDelay):
 		}
 	}
 	if pool == nil {
@@ -122,9 +122,8 @@ func (s *Store) Close() {
 	}
 }
 
-// Save — upsert по id: если consumer получил сообщение повторно (redelivery
-// до ack), повторная запись не ломает уникальность и перезаписывает свежими
-// NLP-результатами.
+// Save — upsert по id. Повторная доставка сообщения до ack перезапишет
+// свежими NLP-результатами, не сломав уникальность.
 func (s *Store) Save(ctx context.Context, r AppealRow) error {
 	theses, err := json.Marshal(r.Theses)
 	if err != nil {
@@ -165,15 +164,14 @@ func (s *Store) Save(ctx context.Context, r AppealRow) error {
 	return err
 }
 
-// List — возвращает обращения пользователя с простым full-text ILIKE-поиском
-// по text/formalized_text и фильтрами по category/subcategory. Для диплома
-// достаточно; если объём вырастет — добавить tsvector и GIN-индекс.
+// List — обращения пользователя с ILIKE-поиском и фильтрами по category/subcategory.
+// Для диплома хватит; при росте объёма — заменить на tsvector + GIN.
 func (s *Store) List(ctx context.Context, f ListFilter) ([]AppealRow, error) {
 	if f.UserID == "" {
 		return nil, errors.New("user_id required")
 	}
-	if f.Limit <= 0 || f.Limit > 500 {
-		f.Limit = 200
+	if f.Limit <= 0 || f.Limit > maxListLimit {
+		f.Limit = defaultListLimit
 	}
 
 	args := []any{f.UserID}
@@ -235,7 +233,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]AppealRow, error) {
 		}
 		out = append(out, r)
 	}
-	if err := rows.Err(); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return out, nil
