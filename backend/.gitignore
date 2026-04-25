@@ -1,6 +1,8 @@
-# Локальный бинарь от `go build` без -o
-/backend
-
-# Редакторское
+bin/
+obj/
+*.user
+.vs/
 .vscode/
 .idea/
+TestResults/
+coverage.*

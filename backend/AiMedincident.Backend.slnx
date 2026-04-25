@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/AiMedincident.Backend/AiMedincident.Backend.csproj" />
+  <Project Path="tests/AiMedincident.Backend.IntegrationTests/AiMedincident.Backend.IntegrationTests.csproj" />
+  <Project Path="tests/AiMedincident.Backend.UnitTests/AiMedincident.Backend.UnitTests.csproj" />
+</Solution>

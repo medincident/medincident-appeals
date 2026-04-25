@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+<ItemGroup>
+    <!-- Основной SDK для тестов -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
+    
+    <!-- Тестовый фреймворк -->
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+    
+    <!-- Ассерты -->
+    <PackageReference Include="FluentAssertions" Version="7.2.2" />
+    
+    <!-- Инструменты и кэширование -->
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Caching.Memory" Version="10.0.7" />
+</ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AiMedincident.Backend\AiMedincident.Backend.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+    <Using Include="FluentAssertions" />
+  </ItemGroup>
+
+</Project>

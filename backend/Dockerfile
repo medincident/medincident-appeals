@@ -1,19 +1,24 @@
-FROM golang:1.25-alpine AS builder
-WORKDIR /build
+FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+WORKDIR /src
 
-COPY go.mod go.sum ./
-RUN go mod download
+COPY src/AiMedincident.Backend/AiMedincident.Backend.csproj src/AiMedincident.Backend/
+RUN dotnet restore src/AiMedincident.Backend/AiMedincident.Backend.csproj
 
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o backend .
+COPY src/ src/
+RUN dotnet publish src/AiMedincident.Backend/AiMedincident.Backend.csproj \
+      -c Release -o /app/publish \
+      /p:UseAppHost=false
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates curl
-
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS runtime
 WORKDIR /app
-COPY --from=builder /build/backend /usr/local/bin/backend
 
-ENV HTTP_ADDR=:8080
-EXPOSE 8080
+RUN apk add --no-cache curl
 
-ENTRYPOINT ["/usr/local/bin/backend"]
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    HTTP_ADDR=:8080
+
+COPY --from=build /app/publish .
+USER app
+
+ENTRYPOINT ["dotnet", "AiMedincident.Backend.dll"]
