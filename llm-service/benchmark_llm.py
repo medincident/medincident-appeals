@@ -32,7 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATASET_PATH = PROJECT_ROOT / "dataset.jsonl"
 DEFAULT_MODEL = "qwen2.5:3b"
 
-sys.path.insert(0, str(PROJECT_ROOT / "categories-service"))
+sys.path.insert(0, str(PROJECT_ROOT / "categories-service-mock"))
 from categories import CATEGORIES  # noqa: E402
 
 SYSTEM_PROMPT = (
@@ -313,3 +313,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# gpt-oss-20b

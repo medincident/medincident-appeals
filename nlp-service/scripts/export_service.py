@@ -42,7 +42,7 @@ EXTRA_FILES = [
 # categories.py кладём в корень nlp-service/, чтобы пакет был самодостаточным
 # (без зависимости от соседней categories-service/).
 EXTRA_PLACED_FILES: list[tuple[Path, Path]] = [
-    (ROOT_DIR / "categories-service" / "categories.py", Path("nlp-service/categories.py")),
+    (ROOT_DIR / "categories-service-mock" / "categories.py", Path("nlp-service/categories.py")),
 ]
 
 

@@ -16,7 +16,7 @@ TRAINED_CLASSIFIER_DIR: Path = TRAINED_DIR / "classifier"
 TRAINED_SEQ2SEQ_DIR: Path = TRAINED_DIR / "seq2seq"
 
 DATASET_PATH: Path = ROOT_DIR / "dataset.jsonl"
-CATEGORIES_SERVICE_DIR: Path = ROOT_DIR / "categories-service"
+CATEGORIES_SERVICE_DIR: Path = ROOT_DIR / "categories-service-mock"
 
 BENCHMARKS_DIR: Path = SERVICE_DIR / "benchmarks"
 BENCHMARK_RESULTS_DIR: Path = BENCHMARKS_DIR / "results"

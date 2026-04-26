@@ -1,15 +1,10 @@
-# -----------------------------------------------------------------
 # Общие настройки логирования для всех сервисов.
-# Ограничение размера — чтобы логи не съели диск при долгой работе.
-# -----------------------------------------------------------------
 x-logging: &default-logging
   driver: "json-file"
   options:
     max-size: "25m"
     max-file: "3"
 
-# Стандартный healthcheck-ритм: 300s/30s/12/20s — как в zitadel/.
-# start_period переопределяется в сервисах, которым нужно больше времени на старт.
 x-healthcheck: &default-healthcheck
   interval: 300s
   timeout: 30s
@@ -17,144 +12,6 @@ x-healthcheck: &default-healthcheck
   start_period: 20s
 
 services:
-
-  # ── NATS (JetStream с файловым хранилищем на диске) ─────────────────────────
-  nats:
-    image: nats:2.10-alpine
-    container_name: ai-medincident-nats
-    # -js      = JetStream
-    # -sd      = storage dir для JetStream (persistent volume)
-    # -m 8222  = HTTP monitoring
-    command: ["-js", "-sd", "/data", "-m", "8222"]
-    restart: unless-stopped
-    ports:
-      - "4222:4222"   # чтобы dev-фронтенд вне compose мог коннектиться
-    volumes:
-      - nats_data:/data
-    healthcheck:
-      <<: *default-healthcheck
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── Categories Service — публикует категории в NATS KV и остаётся в живых ──
-  # Долгоживущий сервис: публикует на старте, ре-публикует на каждый reconnect
-  # к NATS. Нужно чтобы переживать рестарт NATS / пересоздание его volume —
-  # иначе nlp-service будет крашиться на "stream not found".
-  categories-service:
-    build:
-      context: ./categories-service
-      dockerfile: Dockerfile
-    container_name: ai-medincident-categories
-    restart: unless-stopped
-    depends_on:
-      nats:
-        condition: service_healthy
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── LLM Service (Ollama + Qwen2.5-3B) ───────────────────────────────────────
-  llm-service:
-    build:
-      context: ./llm-service
-      dockerfile: Dockerfile
-    container_name: ai-medincident-llm
-    restart: unless-stopped
-    environment:
-      OLLAMA_MODEL: qwen2.5:3b
-    volumes:
-      - ollama_data:/root/.ollama
-    # Раскомментировать когда появится NVIDIA GPU:
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
-    healthcheck:
-      <<: *default-healthcheck
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
-      start_period: 180s   # время на скачивание модели (~2GB)
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── Postgres для бэкенда (хранилище обращений) ──────────────────────────────
-  postgres:
-    image: postgres:16-alpine
-    container_name: ai-medincident-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: medincident
-      POSTGRES_PASSWORD: medincident
-      POSTGRES_DB: medincident
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U medincident -d medincident"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── AI Backend (Go + Fiber + NATS KV + JetStream consumer + Postgres) ───────
-  # Потребляет appeals.submit из JetStream, зовёт nlp-service, сохраняет
-  # результат в Postgres и публикует в appeals.result.<id>. Также отдаёт
-  # REST /users/:userId/appeals с JWT-проверкой против Zitadel.
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: backend
-    restart: unless-stopped
-    environment:
-      NATS_URL: nats://nats:4222
-      NLP_SERVICE_URL: http://nlp-service:8000
-      HTTP_ADDR: ":8080"
-      DATABASE_URL: postgres://medincident:medincident@postgres:5432/medincident?sslmode=disable
-      ZITADEL_ISSUER: https://zitadel-medincident.ulbwa.bombomeow.ru
-    depends_on:
-      nats:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      <<: *default-healthcheck
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ──────────────────────────────
-  # container_name не задан — позволяет `docker compose up --scale nlp-service=N`.
-  nlp-service:
-    build:
-      context: ./nlp-service
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    environment:
-      NATS_URL: nats://nats:4222
-    volumes:
-      - nlp_models:/app/models_cache
-      - ./nlp-service/trained_models:/app/trained_models
-    depends_on:
-      nats:
-        condition: service_healthy
-    healthcheck:
-      <<: *default-healthcheck
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
-      start_period: 120s   # время на загрузку моделей (~368MB)
-    networks:
-      - ai-medincident
-    logging: *default-logging
-
-  # ── Frontend PROD: multi-stage build, bun native runtime ────────────────────
   frontend:
     profiles: [prod]
     build:
@@ -184,7 +41,8 @@ services:
     networks:
       - ai-medincident
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     logging: *default-logging
 
   frontend-dev:
@@ -214,11 +72,146 @@ services:
     networks:
       - ai-medincident
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    logging: *default-logging
+
+  backend:
+    profiles: [dev, prod]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    environment:
+      App__NatsUrl: nats://nats:4222
+      App__HttpAddr: ":8080"
+      App__ZitadelIssuer: https://zitadel-medincident.ulbwa.bombomeow.ru
+      ConnectionStrings__AppDb: "Host=postgres;Port=5432;Username=medincident;Password=medincident;Database=medincident;SslMode=Disable;Maximum Pool Size=10;Include Error Detail=true"
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── Categories mock — набор категорий в NATS KV ─────
+  categories-service-mock:
+    profiles: [dev]
+    build:
+      context: ./categories-service-mock
+      dockerfile: Dockerfile
+    container_name: ai-medincident-categories-mock
+    restart: unless-stopped
+    depends_on:
+      nats:
+        condition: service_healthy
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ──────────────────────────────
+  # поддерживает скейлинг `docker compose up --scale nlp-service=N`.
+  nlp-service:
+    build:
+      context: ./nlp-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NATS_URL: nats://nats:4222
+    volumes:
+      - nlp_models:/app/models_cache
+      - ./nlp-service/trained_models:/app/trained_models
+    depends_on:
+      nats:
+        condition: service_healthy
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      start_period: 120s   # для загрузки моделей (~368MB)
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── LLM Service (Ollama + Qwen2.5-3B) ───────────────────────────────────────
+  llm-service:
+    profiles: [llm]
+    build:
+      context: ./llm-service
+      dockerfile: Dockerfile
+    container_name: ai-medincident-llm
+    restart: unless-stopped
+    environment:
+      OLLAMA_MODEL: qwen2.5:3b
+    volumes:
+      - ollama_data:/root/.ollama
+    # Для настройки GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
+      start_period: 180s   # для загрузки модели (~2GB)
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── NATS (JetStream с файловым хранилищем на диске) ─────────────────────────
+  nats:
+    profiles: [dev, prod]
+    image: nats:2.10-alpine
+    container_name: ai-medincident-nats
+    # -js      = JetStream
+    # -sd      = storage dir для JetStream (persistent volume)
+    # -m 8222  = HTTP monitoring
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    restart: unless-stopped
+    ports:
+      - "4222:4222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  # ── Postgres для бэкенда (хранилище обращений) ──────────────────────────────
+  postgres:
+    profiles: [dev, prod]
+    image: postgres:16-alpine
+    container_name: ai-medincident-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: medincident
+      POSTGRES_PASSWORD: medincident
+      POSTGRES_DB: medincident
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medincident -d medincident"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - ai-medincident
     logging: *default-logging
 
   # ── Prometheus: собирает метрики с nlp-service и frontend ───────────────────
   prometheus:
+    profiles: [dev, prod]
     image: prom/prometheus:v2.55.1
     container_name: ai-medincident-prometheus
     restart: unless-stopped
@@ -235,6 +228,7 @@ services:
 
   # ── Grafana: дашборды. Проксируется фронтендом под /metrics. ────────────────
   grafana:
+    profiles: [dev, prod]
     image: grafana/grafana:11.4.0
     container_name: ai-medincident-grafana
     restart: unless-stopped

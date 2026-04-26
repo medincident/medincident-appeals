@@ -20,7 +20,7 @@ import urllib.request
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT / "categories-service"))
+sys.path.insert(0, str(PROJECT_ROOT / "categories-service-mock"))
 from categories import CATEGORIES  # noqa: E402
 
 DATASET_PATH = PROJECT_ROOT / "dataset.jsonl"
