@@ -4,8 +4,8 @@
   "seed": 42,
   "target": 3000,
   "n_important_templates": 176,
-  "n_not_important_templates": 103,
-  "templates_hash": "d240fac7b7899924",
+  "n_not_important_templates": 120,
+  "templates_hash": "859c2c3142960c00",
   "aug_probs": {
     "synonyms": 0.4,
     "colloquial": 0.25,
