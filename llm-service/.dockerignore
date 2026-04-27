@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.venv
+.ruff_cache
+benchmark_llm.py
+test_llm.py
+*.md

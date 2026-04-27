@@ -1,26 +1,32 @@
-# Этап 1: собираем Go-бинарь в чистом golang-образе.
-FROM golang:1.23-alpine AS builder
-WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o llm-service .
-
-# Этап 2: базовый образ ollama/ollama + наш Go-бинарь.
-# Go-бинарь запускает `ollama serve` как subprocess, добавляет свой HTTP API.
+# syntax=docker/dockerfile:1.6
 FROM ollama/ollama:latest
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-venv python3-pip curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /build/llm-service /usr/local/bin/llm-service
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-ENV OLLAMA_MODEL=qwen2.5:3b \
-    HTTP_ADDR=:11434 \
-    NATS_URL=nats://nats:4222
+WORKDIR /app
+
+ENV VIRTUAL_ENV=/app/.venv \
+    PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH=/app \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    OLLAMA_MODEL=qwen2.5:3b \
+    NATS_URL=nats://nats:4222 \
+    HTTP_PORT=11434
+
+COPY pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv venv && uv pip install --no-cache-dir .
+
+COPY . .
 
 EXPOSE 11434
 
-# Перекрываем ENTRYPOINT базового ollama-образа: теперь точка входа — наш Go-бинарь,
-# он сам стартует `ollama serve` в фоне.
-ENTRYPOINT ["/usr/local/bin/llm-service"]
+ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "11434"]
