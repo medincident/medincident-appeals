@@ -50,7 +50,7 @@ export function PendingAppealCard({ pending }: Props) {
                 onChange={(e) => setDraft(e.target.value)}
                 disabled={saving}
                 autoFocus
-                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring leading-relaxed"
+                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring leading-relaxed"
               />
               <div className="flex items-center justify-between">
                 <span className={cn("text-[10px] tabular-nums", overLimit ? "text-destructive font-medium" : "text-muted-foreground")}>

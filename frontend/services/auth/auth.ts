@@ -54,6 +54,7 @@ async function refreshAccessToken(token: any) {
     };
   } catch (error) {
     // Логируем только name+message, чтобы не утянуть refresh_token / отклик IdP в логи.
+    console.error("[auth] Token refresh failed serios:", error);
     console.error("[auth] Token refresh failed:", safeError(error));
     return { ...token, error: "RefreshAccessTokenError" };
   }

@@ -53,7 +53,7 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
           <textarea
             ref={ref}
             rows={3}
-            className="w-full resize-none bg-transparent px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed"
+            className="w-full resize-none bg-transparent px-4 py-3 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed"
             placeholder="Расскажите, что произошло…"
             value={displayValue}
             onChange={(e) => onChange(e.target.value)}
