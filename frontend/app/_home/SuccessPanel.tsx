@@ -1,14 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { Check, Sparkles, Tag } from "lucide-react"
+import { Check } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { Appeal } from "@/domain/appeals/types"
 
 export function SuccessPanel({ appeal, fading }: { appeal: Appeal; fading: boolean }) {
-  const firstThesis = appeal.theses[0]
-
   return (
     <div
       className={cn(
@@ -29,38 +27,12 @@ export function SuccessPanel({ appeal, fading }: { appeal: Appeal; fading: boole
           >
             Ваше обращение
           </Link>{" "}
-          уже в обработке
+          поставлено в очередь
         </p>
         <p className="text-xs text-muted-foreground max-w-sm">
           Спасибо, что поделились — это помогает нам становиться лучше.
         </p>
       </div>
-
-      {(appeal.category || firstThesis) && (
-        <div className="w-full max-w-sm rounded-xl bg-card border border-border/60 px-3.5 py-2.5 text-left space-y-1.5">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
-            <Sparkles className="h-3 w-3 text-primary" />
-            ИИ уже проанализировал
-          </p>
-          {appeal.category && (
-            <p className="text-xs text-foreground flex items-center gap-1.5">
-              <Tag className="h-3 w-3 text-primary shrink-0" />
-              <span className="truncate">
-                {appeal.category.name}
-                {appeal.subcategory && (
-                  <span className="text-muted-foreground"> · {appeal.subcategory.name}</span>
-                )}
-              </span>
-            </p>
-          )}
-          {firstThesis && (
-            <p className="text-xs text-muted-foreground flex items-start gap-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
-              <span>{firstThesis}</span>
-            </p>
-          )}
-        </div>
-      )}
     </div>
   )
 }

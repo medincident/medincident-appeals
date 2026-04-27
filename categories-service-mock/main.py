@@ -20,6 +20,7 @@ Categories Service — публикует категории мединциде�
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 
@@ -38,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("categories-service")
 
-NATS_URL = "nats://nats:4222"
+NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 KV_BUCKET = "medincident"
 KV_KEY = "categories"
 

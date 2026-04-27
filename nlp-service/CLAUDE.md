@@ -15,8 +15,8 @@ complaint text
       │
       ▼
 ┌─────────────────────┐
-│ ImportanceClassifier│  rubert-tiny2 (29MB)
-│ is_important + conf │  ~50ms на CPU
+│ ImportanceClassifier│  rubert-base-conv (~700MB)
+│ is_important + conf │  ~200ms на CPU
 └──────────┬──────────┘
            │ is_important=False → возвращаем ранний ответ
            │ is_important=True  ↓
@@ -42,7 +42,7 @@ formalize()  theses()    match(formalized)
 
 | Модель | Задача | Размер | Обучение |
 |--------|--------|--------|----------|
-| `cointegrated/rubert-tiny2` | is_important (binary) | 29 MB | Fine-tune обязателен |
+| `DeepPavlov/rubert-base-cased-conversational` | is_important (binary) | ~700 MB | Fine-tune обязателен |
 | `cointegrated/rut5-base-multitask` | formalized_text + theses | 222 MB | Fine-tune рекомендован |
 | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | category + subcategory | 117 MB | Не нужно (zero-shot) |
 
@@ -68,7 +68,7 @@ nlp-service/
 │   ├── classifier/
 │   │   ├── __init__.py
 │   │   ├── model.py                # ImportanceClassifier
-│   │   └── train.py                # fine-tune rubert-tiny2
+│   │   └── train.py                # fine-tune rubert-base-cased-conversational
 │   ├── seq2seq/
 │   │   ├── __init__.py
 │   │   ├── model.py                # TextProcessor

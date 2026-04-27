@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import ZitadelProvider from "next-auth/providers/zitadel";
 import { env } from "@/shared/config/env";
+import { safeError } from "@/lib/log";
 
 const OIDC_SCOPES = [
   "openid",
@@ -52,7 +53,8 @@ async function refreshAccessToken(token: any) {
       error: undefined,
     };
   } catch (error) {
-    console.error("[auth] Token refresh failed:", error);
+    // Логируем только name+message, чтобы не утянуть refresh_token / отклик IdP в логи.
+    console.error("[auth] Token refresh failed:", safeError(error));
     return { ...token, error: "RefreshAccessTokenError" };
   }
 }

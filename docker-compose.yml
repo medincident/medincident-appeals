@@ -11,6 +11,14 @@ x-healthcheck: &default-healthcheck
   retries: 12
   start_period: 20s
 
+x-frontend-env: &frontend-env
+  AUTH_APP_URL: ${AUTH_APP_URL}
+  AUTH_ORG_ID: ${AUTH_ORG_ID}
+  AUTH_CLIENT_ID: ${AUTH_CLIENT_ID}
+  APP_URL: ${APP_URL}
+  AUTH_SECRET: ${AUTH_SECRET}
+  NEXT_PUBLIC_AUTH_APP_URL: ${NEXT_PUBLIC_AUTH_APP_URL}
+
 services:
   frontend:
     profiles: [prod]
@@ -18,26 +26,16 @@ services:
       context: ./frontend
       dockerfile: Dockerfile.production
       args:
-        AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
-        AUTH_ORG_ID: "366537916404531205"
-        AUTH_CLIENT_ID: "367696885982494726"
-        APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-        AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
-        NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
+        <<: *frontend-env
     container_name: frontend
     restart: unless-stopped
     ports:
       - "8082:3000"
     environment:
-      AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
-      AUTH_ORG_ID: "366537916404531205"
-      AUTH_CLIENT_ID: "367696885982494726"
-      APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
-      NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      NATS_URL: "nats://nats:4222"
-      BACKEND_URL: "http://backend:8080"
+      <<: *frontend-env
+      AUTH_URL: ${AUTH_URL}
+      NATS_URL: ${NATS_URL}
+      BACKEND_URL: ${BACKEND_URL}
     networks:
       - ai-medincident
     depends_on:
@@ -55,15 +53,10 @@ services:
     ports:
       - "8082:3000"
     environment:
-      AUTH_APP_URL: "https://zitadel-medincident.ulbwa.bombomeow.ru"
-      AUTH_ORG_ID: "366537916404531205"
-      AUTH_CLIENT_ID: "367696885982494726"
-      APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      AUTH_SECRET: "UCy6Xy3C31ca0TyJ27DWKZ82QzC0Yq7qg+YvBwqjUIQ="
-      NEXT_PUBLIC_AUTH_APP_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      AUTH_URL: "https://id-medincident.ulbwa.bombomeow.ru"
-      NATS_URL: "nats://nats:4222"
-      BACKEND_URL: "http://backend:8080"
+      <<: *frontend-env
+      AUTH_URL: ${AUTH_URL}
+      NATS_URL: ${NATS_URL}
+      BACKEND_URL: ${BACKEND_URL}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
@@ -84,10 +77,10 @@ services:
     container_name: backend
     restart: unless-stopped
     environment:
-      App__NatsUrl: nats://nats:4222
-      App__HttpAddr: ":8080"
-      App__ZitadelIssuer: https://zitadel-medincident.ulbwa.bombomeow.ru
-      ConnectionStrings__AppDb: "Host=postgres;Port=5432;Username=medincident;Password=medincident;Database=medincident;SslMode=Disable;Maximum Pool Size=10;Include Error Detail=true"
+      App__NatsUrl: ${NATS_URL}
+      App__HttpAddr: ${APP_HTTP_ADDR}
+      App__ZitadelIssuer: ${ZITADEL_ISSUER}
+      ConnectionStrings__AppDb: ${APPDB_CONNECTION_STRING}
     depends_on:
       nats:
         condition: service_healthy
@@ -108,6 +101,8 @@ services:
       dockerfile: Dockerfile
     container_name: ai-medincident-categories-mock
     restart: unless-stopped
+    environment:
+      NATS_URL: ${NATS_URL}
     depends_on:
       nats:
         condition: service_healthy
@@ -123,7 +118,7 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      NATS_URL: nats://nats:4222
+      NATS_URL: ${NATS_URL}
     volumes:
       - nlp_models:/app/models_cache
       - ./nlp-service/trained_models:/app/trained_models
@@ -138,7 +133,7 @@ services:
       - ai-medincident
     logging: *default-logging
 
-  # ── LLM Service (Ollama + Qwen2.5-3B) ───────────────────────────────────────
+  # ── LLM Service (Ollama + Qwen2.5-3B) ──────────────────────
   llm-service:
     profiles: [llm]
     build:
@@ -147,7 +142,8 @@ services:
     container_name: ai-medincident-llm
     restart: unless-stopped
     environment:
-      OLLAMA_MODEL: qwen2.5:3b
+      OLLAMA_MODEL: ${OLLAMA_MODEL}
+      NATS_URL: ${NATS_URL}
     volumes:
       - ollama_data:/root/.ollama
     # Для настройки GPU:
@@ -194,13 +190,13 @@ services:
     container_name: ai-medincident-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: medincident
-      POSTGRES_PASSWORD: medincident
-      POSTGRES_DB: medincident
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U medincident -d medincident"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -220,7 +216,7 @@ services:
       - "--storage.tsdb.path=/prometheus"
       - "--storage.tsdb.retention.time=7d"
     volumes:
-      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./metrics-service/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     networks:
       - ai-medincident
@@ -241,8 +237,8 @@ services:
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./metrics-service/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./metrics-service/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus

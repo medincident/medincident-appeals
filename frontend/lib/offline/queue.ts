@@ -1,12 +1,41 @@
 "use client"
 
-// Очередь неотправленных обращений в IndexedDB.
-// Используется, когда клиент офлайн: сервер-экшен createAppealAction недоступен,
-// поэтому складываем payload в локальное хранилище и дошлём позже.
+import { decryptString, encryptString } from "./crypto"
+
+export const PENDING_CHANGED_EVENT = "aimi-pending-changed"
+
+function emitChanged(): void {
+  if (typeof window === "undefined") return
+  window.dispatchEvent(new CustomEvent(PENDING_CHANGED_EVENT))
+}
+
+// Локи на отправку: пока пользователь редактирует pending-обращение,
+// flushQueue должен его пропускать. Set живёт в памяти таба.
+const editLocks = new Set<string>()
+
+export function lockPending(localId: string): void {
+  editLocks.add(localId)
+}
+
+export function unlockPending(localId: string): void {
+  editLocks.delete(localId)
+}
+
+export function isPendingLocked(localId: string): boolean {
+  return editLocks.has(localId)
+}
 
 const DB_NAME = "aimi-offline"
-const DB_VERSION = 1
+// v2: миграция с plaintext-формата (хранил поле `text`) на encrypted (`cipher`).
+const DB_VERSION = 2
 const STORE = "pending-appeals"
+
+interface StoredAppeal {
+  localId: string
+  cipher: string // encrypted base64
+  createdAt: string
+  attempts: number
+}
 
 export interface PendingAppeal {
   /** Локальный id, чтобы не путать с id обращения, которое сгенерирует сервер. */
@@ -25,9 +54,13 @@ function openDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
-      if (!db.objectStoreNames.contains(STORE)) {
-        db.createObjectStore(STORE, { keyPath: "localId" })
+      // На любом апгрейде с предыдущей версии безопаснее снести стор:
+      // данные либо ещё в plaintext-формате (PII!), либо зашифрованы старым
+      // ключом, к которому уже нет доступа.
+      if (db.objectStoreNames.contains(STORE)) {
+        db.deleteObjectStore(STORE)
       }
+      db.createObjectStore(STORE, { keyPath: "localId" })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -67,27 +100,59 @@ function randomId(): string {
 
 export async function enqueueAppeal(text: string): Promise<PendingAppeal> {
   if (!hasIDB()) throw new Error("IndexedDB недоступен")
-  const item: PendingAppeal = {
-    localId: randomId(),
-    text,
-    createdAt: new Date().toISOString(),
-    attempts: 0,
-  }
+  const localId = randomId()
+  const createdAt = new Date().toISOString()
+  const cipher = await encryptString(text)
+  const stored: StoredAppeal = { localId, cipher, createdAt, attempts: 0 }
   await tx("readwrite", (store) => {
-    store.add(item)
+    store.add(stored)
   })
-  return item
+  emitChanged()
+  return { localId, text, createdAt, attempts: 0 }
+}
+
+export async function updatePending(localId: string, text: string): Promise<void> {
+  if (!hasIDB()) throw new Error("IndexedDB недоступен")
+  const cipher = await encryptString(text)
+  await tx("readwrite", (store) => {
+    return new Promise<void>((resolve, reject) => {
+      const req = store.get(localId)
+      req.onsuccess = () => {
+        const current = req.result as StoredAppeal | undefined
+        if (!current) return resolve()
+        current.cipher = cipher
+        const putReq = store.put(current)
+        putReq.onsuccess = () => resolve()
+        putReq.onerror = () => reject(putReq.error)
+      }
+      req.onerror = () => reject(req.error)
+    })
+  })
+  emitChanged()
 }
 
 export async function listPending(): Promise<PendingAppeal[]> {
   if (!hasIDB()) return []
-  return tx("readonly", (store) => {
-    return new Promise<PendingAppeal[]>((resolve, reject) => {
+  const stored = await tx("readonly", (store) => {
+    return new Promise<StoredAppeal[]>((resolve, reject) => {
       const req = store.getAll()
-      req.onsuccess = () => resolve((req.result as PendingAppeal[]) ?? [])
+      req.onsuccess = () => resolve((req.result as StoredAppeal[]) ?? [])
       req.onerror = () => reject(req.error)
     })
   })
+
+  const items: PendingAppeal[] = []
+  for (const row of stored) {
+    try {
+      const text = await decryptString(row.cipher)
+      items.push({ localId: row.localId, text, createdAt: row.createdAt, attempts: row.attempts })
+    } catch {
+      // Ключ потерян (новый таб, sessionStorage очистился): запись не
+      // расшифровать — удаляем, чтобы не висела навсегда.
+      await removePending(row.localId).catch(() => {})
+    }
+  }
+  return items
 }
 
 export async function removePending(localId: string): Promise<void> {
@@ -95,6 +160,8 @@ export async function removePending(localId: string): Promise<void> {
   await tx("readwrite", (store) => {
     store.delete(localId)
   })
+  unlockPending(localId)
+  emitChanged()
 }
 
 export async function bumpAttempts(localId: string): Promise<void> {
@@ -103,7 +170,7 @@ export async function bumpAttempts(localId: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const req = store.get(localId)
       req.onsuccess = () => {
-        const current = req.result as PendingAppeal | undefined
+        const current = req.result as StoredAppeal | undefined
         if (!current) return resolve()
         current.attempts += 1
         const putReq = store.put(current)

@@ -1,5 +1,6 @@
 """Оркестрация пайплайна + инфраструктура (NATS, logging, metrics)."""
 
+from .analyze_handler import subscribe_analyze
 from .logging_setup import setup_logging
 from .metrics import (
     classifier_predictions_total,
@@ -20,5 +21,6 @@ __all__ = [
     "pipeline_requests_total",
     "run_pipeline",
     "setup_logging",
+    "subscribe_analyze",
     "watch_categories",
 ]

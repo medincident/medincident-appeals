@@ -2,7 +2,32 @@
 
 import { redirect } from "next/navigation";
 import { env } from "@/shared/config/env";
-import { signIn, signOut } from "./auth";
+import { safeError } from "@/lib/log";
+import { auth, signIn, signOut } from "./auth";
+
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://backend:8080";
+
+interface SessionLike { accessToken?: string }
+
+/**
+ * Бэкенд держит in-memory blacklist отозванных токенов (см. TokenBlacklist).
+ * Дёргаем POST /api/v1/auth/logout до снос куки, чтобы access-token,
+ * который ещё живёт в Zitadel TTL, не принимался нашим API.
+ */
+async function revokeOnBackend(): Promise<void> {
+  const session = (await auth()) as unknown as SessionLike | null;
+  const token = session?.accessToken;
+  if (!token) return;
+  try {
+    await fetch(`${BACKEND_URL}/api/v1/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+  } catch (err) {
+    console.warn("[auth] backend revoke failed:", safeError(err));
+  }
+}
 
 // MissingCSRF при client-side signOut обходится через Server Action — у него
 // собственная защита через Next.js (origin check), CSRF-cookie Auth.js не нужен.
@@ -15,6 +40,7 @@ import { signIn, signOut } from "./auth";
  * Spec: https://openid.net/specs/openid-connect-rpinitiated-1_0.html
  */
 export async function logoutAction(): Promise<void> {
+  await revokeOnBackend();
   await signOut({ redirect: false });
 
   const params = new URLSearchParams({
@@ -30,6 +56,7 @@ export async function logoutAction(): Promise<void> {
  * (получим invalid_request), достаточно снести NextAuth-куку.
  */
 export async function localLogoutAction(): Promise<void> {
+  await revokeOnBackend();
   await signOut({ redirectTo: "/login" });
 }
 

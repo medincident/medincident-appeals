@@ -18,6 +18,11 @@ trained_models/
 models/*/train.py
 benchmarks/
 
+# Датасет — обучающий, в runtime-образе не нужен (152-ФЗ ст. 5: минимизация данных).
+*.jsonl
+*.meta.json
+dataset/
+
 .git/
 .gitignore
 .vscode/

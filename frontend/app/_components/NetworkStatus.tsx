@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { CheckCircle2, RefreshCcw, Wifi, WifiOff } from "lucide-react"
 
 import { createAppealAction } from "@/domain/appeals/actions"
+import { safeError } from "@/lib/log"
 import {
   bumpAttempts,
   countPending,
@@ -37,7 +38,7 @@ async function flushQueue(onAfterFlush?: () => void): Promise<void> {
     } catch (err) {
       failed++
       await bumpAttempts(item.localId).catch(() => {})
-      console.error("[NetworkStatus] failed to flush appeal:", err)
+      console.error("[NetworkStatus] failed to flush appeal:", safeError(err))
     }
   }
 

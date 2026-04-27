@@ -2,6 +2,8 @@
 
 import * as React from "react"
 
+import { safeError } from "@/lib/log"
+
 export function ServiceWorkerRegistrar() {
   React.useEffect(() => {
     if (typeof window === "undefined") return
@@ -13,7 +15,7 @@ export function ServiceWorkerRegistrar() {
       navigator.serviceWorker
         .register("/sw.js", { scope: "/" })
         .catch((err) => {
-          console.error("[pwa] service worker registration failed", err)
+          console.error("[pwa] service worker registration failed:", safeError(err))
         })
     }
 

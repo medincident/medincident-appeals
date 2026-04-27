@@ -5,22 +5,14 @@ import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 
 import { auth } from "@/services/auth/auth"
+import { appealsCreated } from "@/lib/metrics"
 import {
-  appealsCreated,
-  nlpAnalyzeDuration,
-  nlpAnalyzeTotal,
-  type NlpOutcome,
-} from "@/lib/metrics"
-import {
-  APPEALS_RESULT_SUBJECT_PREFIX,
   APPEALS_SUBMIT_SUBJECT,
   getNats,
   jsonCodec,
 } from "@/lib/nats"
 
-import type { Appeal, AppealFilters, NlpAnalyzeResult } from "./types"
-
-const APPEAL_REPLY_TIMEOUT_MS = 20_000
+import type { Appeal, AppealFilters } from "./types"
 
 // BACKEND_URL обязателен — фронт ходит в бэкенд за REST-списком обращений.
 // В compose прокинут как http://backend:8080, для локального dev — либо тот же
@@ -54,18 +46,6 @@ interface AppealSubmitPayload {
   text: string
   created_at: string
   user_id: string
-}
-
-interface AppealResultPayload {
-  id: string
-  is_important?: boolean
-  important_confidence?: number
-  reason?: string
-  formalized_text?: string
-  theses?: string[]
-  category?: { id: string; name: string } | null
-  subcategory?: { id: string; name: string } | null
-  error?: string
 }
 
 // Shape строк из бэкенд-REST /users/:id/appeals (backend.AppealRow).
@@ -107,73 +87,18 @@ function rowToAppeal(r: BackendAppealRow): Appeal {
   }
 }
 
-// ── NATS integration ───────────────────────────────────────────────────────
-
-async function analyzeViaNats(
-  id: string,
-  text: string,
-  userId: string,
-): Promise<NlpAnalyzeResult | null> {
-  let outcome: NlpOutcome = "success"
-  const endTimer = nlpAnalyzeDuration.startTimer()
-  try {
-    const { nc, js } = await getNats()
-
-    const sub = nc.subscribe(`${APPEALS_RESULT_SUBJECT_PREFIX}${id}`, { max: 1 })
-    await nc.flush()
-
-    try {
-      const payload: AppealSubmitPayload = {
-        id,
-        text,
-        user_id: userId,
-        created_at: new Date().toISOString(),
-      }
-      await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
-        msgID: `submit-${id}`,
-        timeout: 5_000,
-      })
-
-      const msg = await Promise.race([
-        (async () => {
-          for await (const m of sub) return m
-          throw new Error("subscription closed before reply")
-        })(),
-        new Promise<never>((_, rej) =>
-          setTimeout(
-            () => rej(new Error("timeout waiting for appeal result")),
-            APPEAL_REPLY_TIMEOUT_MS,
-          ),
-        ),
-      ])
-
-      const data = jsonCodec.decode(msg.data) as AppealResultPayload
-      if (data.error) {
-        outcome = "http_error"
-        console.error("[appeals.actions] NLP returned error:", data.error)
-        return null
-      }
-      return {
-        is_important: data.is_important ?? true,
-        important_confidence: data.important_confidence,
-        reason: data.reason,
-        formalized_text: data.formalized_text,
-        theses: data.theses,
-        category: data.category ?? null,
-        subcategory: data.subcategory ?? null,
-      }
-    } finally {
-      sub.unsubscribe()
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    outcome = msg.includes("timeout") ? "timeout" : "network_error"
-    console.error("[appeals.actions] NATS analyze failed:", err)
-    return null
-  } finally {
-    endTimer({ outcome })
-    nlpAnalyzeTotal.inc({ outcome })
+async function enqueueViaNats(id: string, text: string, userId: string): Promise<void> {
+  const { js } = await getNats()
+  const payload: AppealSubmitPayload = {
+    id,
+    text,
+    user_id: userId,
+    created_at: new Date().toISOString(),
   }
+  await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
+    msgID: `submit-${id}`,
+    timeout: 5_000,
+  })
 }
 
 function makeSummary(text: string, max = 50): string {
@@ -197,7 +122,7 @@ export async function getAppealsAction(
   if (filters.categoryId) qs.set("category", filters.categoryId)
   if (filters.subcategoryId) qs.set("subcategory", filters.subcategoryId)
 
-  const url = `${BACKEND_URL}/users/${encodeURIComponent(session.userId!)}/appeals${qs.toString() ? "?" + qs.toString() : ""}`
+  const url = `${BACKEND_URL}/api/v1/users/${encodeURIComponent(session.userId!)}/appeals${qs.toString() ? "?" + qs.toString() : ""}`
 
   const res = await fetch(url, {
     method: "GET",
@@ -214,9 +139,10 @@ export async function getAppealsAction(
 }
 
 /**
- * Создаёт обращение: публикует в NATS (user_id прикладывается из сессии),
- * ждёт ответ от backend/nlp. Сама строка сохраняется в БД бэкендом — здесь
- * мы только возвращаем видимый результат для оптимистичного обновления UI.
+ * Ставит обращение в очередь: публикует в NATS (user_id из сессии).
+ * Бэкенд сохраняет строку со статусом `pending`, затем переводит в
+ * `processing` и `processed` по ходу обработки. Фронт не ждёт результат —
+ * показывает «спасибо» со ссылкой на обращение.
  */
 export async function createAppealAction(text: string): Promise<Appeal> {
   const trimmed = text.trim()
@@ -225,19 +151,18 @@ export async function createAppealAction(text: string): Promise<Appeal> {
   const session = await requireSession()
 
   const id = randomUUID()
-  const nlp = await analyzeViaNats(id, trimmed, session.userId!)
+  await enqueueViaNats(id, trimmed, session.userId!)
 
   const appeal: Appeal = {
     id,
     text: trimmed,
     summary: makeSummary(trimmed),
-    formalizedText: nlp?.formalized_text?.trim() || trimmed,
-    theses: nlp?.theses ?? [],
-    category:    nlp?.category    ?? null,
-    subcategory: nlp?.subcategory ?? null,
-    isImportant: nlp?.is_important ?? true,
-    importantConfidence: nlp?.important_confidence,
-    status: nlp ? "processed" : "processing",
+    formalizedText: trimmed,
+    theses: [],
+    category: null,
+    subcategory: null,
+    isImportant: true,
+    status: "pending",
     createdAt: new Date().toISOString(),
   }
 

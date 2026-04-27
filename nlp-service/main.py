@@ -7,7 +7,8 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from models import CategoryMatcher, ImportanceClassifier, TextProcessor
@@ -20,6 +21,7 @@ from service import (
     pipeline_requests_total,
     run_pipeline,
     setup_logging,
+    subscribe_analyze,
     watch_categories,
 )
 
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
 
     nc = None
     watcher_task = None
+    analyze_sub = None
     try:
         nc = await connect_with_retry(NATS_URL)
         js = nc.jetstream()
@@ -67,11 +70,24 @@ async def lifespan(app: FastAPI):
         watcher_task = asyncio.create_task(
             watch_categories(js, KV_BUCKET, KV_KEY, _apply_categories)
         )
+
+        analyze_sub = await subscribe_analyze(
+            nc,
+            classifier,
+            processor,
+            matcher,
+            run_pipeline,
+            pipeline_duration_seconds,
+            pipeline_requests_total,
+            classifier_predictions_total,
+        )
     except Exception as exc:
         logger.error("NATS unavailable: %s — service starts without categories", exc)
 
     yield
 
+    if analyze_sub:
+        await analyze_sub.unsubscribe()
     if watcher_task:
         watcher_task.cancel()
     if nc:
@@ -80,6 +96,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="NLP Service", version="0.1.0", lifespan=lifespan)
 instrument_app(app)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Не отдаём traceback клиенту: входной текст обращения может оказаться в repr(exc)."""
+    logger.error("unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 
 class AnalyzeRequest(BaseModel):

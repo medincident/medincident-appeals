@@ -37,34 +37,33 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
 
   return (
     <div className="space-y-3">
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Bot className="h-6 w-6 text-primary" />
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Bot className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
-          Предварительный анализ обращения /
+          Предварительный анализ
         </span>
-        {/* Важно / Не важно + confidence */}
-      <p className="text-xs flex items-center gap-1.5">
-        {appeal.isImportant ? (
-          <>
-            <AlertTriangle className="h-3.5 w-3.5 text-warning" />
-            <span className="font-medium text-warning">Важно</span>
-          </>
-        ) : (
-          <span className="font-medium text-muted-foreground">Не важно</span>
-        )}
-        {confidencePct !== null && (
-          <span className="text-muted-foreground">({confidencePct}%)</span>
-        )}
-      </p>
+        <span className="text-xs flex items-center gap-1.5 ml-auto">
+          {appeal.isImportant ? (
+            <>
+              <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+              <span className="font-medium text-warning">Важно</span>
+            </>
+          ) : (
+            <span className="font-medium text-muted-foreground">Не важно</span>
+          )}
+          {confidencePct !== null && (
+            <span className="text-muted-foreground">({confidencePct}%)</span>
+          )}
+        </span>
       </div>
 
-      {/* Формализованный текст */}
       {appeal.formalizedText && (
-        <p className="text-xs text-foreground leading-relaxed">{appeal.formalizedText}</p>
+        <div className="text-xs">
+          <p className="font-medium text-foreground mb-1">Формализация:</p>
+          <p className="text-foreground leading-relaxed">{appeal.formalizedText}</p>
+        </div>
       )}
 
-      {/* Тезисы — ключевые слова */}
       {appeal.theses.length > 0 && (
         <div className="text-xs">
           <p className="font-medium text-foreground mb-1">Ключевые слова:</p>
@@ -79,7 +78,6 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
         </div>
       )}
 
-      {/* Категория / подкатегория */}
       {appeal.category && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Категория: </span>
@@ -142,13 +140,14 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
       </button>
 
       {expanded && (
-        <div className="border-t border-border px-4 py-4 animate-fade-in">
-          <p className="text-xs text-foreground leading-relaxed">
-            {appeal.text}
-          </p>
+        <div className="border-t border-border px-4 py-4 animate-fade-in space-y-4">
+          <div className="text-xs">
+            <p className="font-medium text-foreground mb-1">Текст пациента:</p>
+            <p className="text-foreground leading-relaxed">{appeal.text}</p>
+          </div>
           {!IN_PROGRESS_STATUSES.has(appeal.status) && (
             <>
-              <div className="h-px bg-border my-4" />
+              <div className="h-px bg-border" />
               <AiInfoBlock appeal={appeal} />
             </>
           )}

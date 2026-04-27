@@ -73,7 +73,9 @@ async function buildNatsState(): Promise<NatsState> {
   ;(async () => {
     for await (const s of nc.status()) {
       if (s.type === "disconnect" || s.type === "error") {
-        console.warn("[nats] status:", s.type, s.data)
+        // Логируем только тип события: data может содержать причины отказа от
+        // сервера (включая токены/строки подключения) — наружу не пускаем.
+        console.warn("[nats] status:", s.type)
       }
     }
   })().catch(() => {})

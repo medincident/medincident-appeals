@@ -25,12 +25,10 @@ export default function MainPage() {
       <main className="flex-1 flex flex-col w-full max-w-xl mx-auto px-4 pb-4 sm:pb-10 sm:justify-center sm:gap-8">
         <div className="flex-1 sm:flex-initial flex flex-col items-center justify-center gap-2 text-center py-6 sm:py-0">
           <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-foreground">
-            Medincident
+            МедИнцидент
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground max-w-md">
-            {firstName
-              ? `Здравствуйте, ${firstName}. Поделитесь обращением, благодарностью или предложением.`
-              : "Портал обращений, благодарностей и предложений."}
+            Портал для обращений пациентов.
           </p>
         </div>
 

@@ -15,10 +15,10 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 
 import { useAppeals } from "@/domain/appeals/hooks"
-import type { Appeal } from "@/domain/appeals/types"
+import type { Appeal, AppealStatus } from "@/domain/appeals/types"
 
 import { AppealCard, IN_PROGRESS_STATUSES } from "./_components/AppealCard"
-import { AppealsToolbar, type StatusFilter } from "./_components/AppealsToolbar"
+import { AppealsToolbar } from "./_components/AppealsToolbar"
 import { SectionHeader } from "./_components/SectionHeader"
 
 export default function AppealsPage() {
@@ -33,8 +33,8 @@ function AppealsPageInner() {
   const searchParams = useSearchParams()
   const selectId     = searchParams.get("select_id")
 
-  const [searchInput, setSearchInput]   = React.useState("")
-  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("")
+  const [searchInput, setSearchInput] = React.useState("")
+  const [statuses, setStatuses]       = React.useState<AppealStatus[]>([])
 
   // Debounce на 300мс — чтобы не гонять запросы на каждую нажатую клавишу.
   const [searchQuery, setSearchQuery] = React.useState("")
@@ -48,8 +48,8 @@ function AppealsPageInner() {
   })
 
   const appeals = React.useMemo(
-    () => (statusFilter ? rawAppeals.filter((a) => a.status === statusFilter) : rawAppeals),
-    [rawAppeals, statusFilter],
+    () => (statuses.length === 0 ? rawAppeals : rawAppeals.filter((a) => statuses.includes(a.status))),
+    [rawAppeals, statuses],
   )
 
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(() =>
@@ -93,7 +93,7 @@ function AppealsPageInner() {
   const inProgress = appeals.filter((a) => IN_PROGRESS_STATUSES.has(a.status))
   const completed  = appeals.filter((a) => !IN_PROGRESS_STATUSES.has(a.status))
 
-  const hasFilters = !!searchQuery || !!statusFilter
+  const hasFilters = !!searchQuery || statuses.length > 0
   const empty      = !isLoading && appeals.length === 0
 
   return (
@@ -120,8 +120,8 @@ function AppealsPageInner() {
         <AppealsToolbar
           search={searchInput}
           onSearchChange={setSearchInput}
-          statusFilter={statusFilter}
-          onStatusChange={setStatusFilter}
+          statuses={statuses}
+          onStatusesChange={setStatuses}
         />
 
         <div className="space-y-5">
@@ -155,7 +155,7 @@ function AppealsPageInner() {
                 className="text-xs mt-1"
                 onClick={() => {
                   setSearchInput("")
-                  setStatusFilter("")
+                  setStatuses([])
                 }}
               >
                 Сбросить
