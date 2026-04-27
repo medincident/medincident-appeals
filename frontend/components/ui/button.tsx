@@ -5,25 +5,26 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 shadow-none",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 active:scale-[0.97] [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 shadow-none",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground hover:bg-primary/90",
+          "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/80",
         outline:
-          "border border-input bg-surface-raised hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-surface-raised hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
         secondary:
-          "bg-surface-raised text-foreground border border-border hover:bg-muted/40",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
-        icon: "hover:bg-accent hover:text-accent-foreground [&_svg]:size-6",
+          "bg-surface-raised text-foreground border border-border hover:border-primary/40 hover:text-primary active:border-primary/60 active:bg-primary/5",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
+        link: "text-primary underline-offset-4 hover:underline active:scale-100",
+        icon: "hover:bg-accent hover:text-accent-foreground active:bg-accent/80 [&_svg]:size-6",
         telegram:
-          "transition-all duration-300 border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--telegram-gradient)] hover:opacity-90 [&_svg]:size-6",
+          "border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--telegram-gradient)] hover:opacity-90 active:opacity-80 [&_svg]:size-6",
         max:
-          "transition-all duration-300 border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--max-gradient)] hover:opacity-90 [&_svg]:size-6",
+          "border-0 text-primary-foreground shadow-none hover:shadow-md bg-[image:var(--max-gradient)] hover:opacity-90 active:opacity-80 [&_svg]:size-6",
       },
       size: {
         default: "h-9 px-4 py-2",

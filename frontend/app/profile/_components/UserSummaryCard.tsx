@@ -19,7 +19,7 @@ export function UserSummaryCard({ fullName, initials, photoUrl, position, email 
       <div className="relative flex items-center gap-5">
         <div className="shrink-0">
           <div className="rounded-full p-0.5 bg-gradient-to-br from-primary/60 via-primary/30 to-transparent">
-            <div className="rounded-full bg-background">
+            <div className="rounded-full bg-card">
               <Avatar className="h-16 w-16 shrink-0">
                 {photoUrl && <AvatarImage src={photoUrl} alt={fullName} className="object-cover" />}
                 <AvatarFallback className="bg-primary/10 text-primary text-lg font-semibold">

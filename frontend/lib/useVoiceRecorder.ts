@@ -1,25 +1,28 @@
 "use client"
 
 /**
+ * Вайб распознователь, на свой SST нет мощностей
+ * 
  * useVoiceRecorder — hook на Web Speech API (SpeechRecognition).
  *
  * Распознавание идёт прямо в браузере пользователя:
- *  - Chrome / Edge: встроенный Google STT (cloud), хорошо на русском
- *  - Safari:        встроенный Apple STT
- *  - Firefox:       поддержка слабая, хук помечает unsupported
+ *  - Chrome / Edge (Chromium): webkitSpeechRecognition (Google STT cloud)
+ *  - Safari (macOS 14.5+/iOS 14.5+): встроенный Apple STT
+ *  - Firefox: API нет — supported = false
  *
- * Плюсы: нет нагрузки на сервер, работает на любом CPU, низкая latency,
- * interim-результаты (текст появляется по мере речи).
- * Минусы: требует HTTPS или localhost, в Firefox не работает стабильно.
+ * Требования: secure context (HTTPS или localhost).
  *
- * Использование:
- *   const { status, interimText, error, start, stop, supported } =
- *     useVoiceRecorder({ onTranscript: (text) => append(text) })
+ * Состояния:
+ *  - idle      — ничего не происходит
+ *  - loading   — пользователь нажал «Записать», ждём прогрев STT-движка
+ *                (от рукопожатия с бэкендом до onstart). Кнопка должна быть disabled.
+ *  - recording — поток открыт, говорим
+ *  - error     — последняя попытка упала; через 1.5s вернёмся в idle, можно ретраить
  */
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
-export type RecorderStatus = "idle" | "recording" | "error"
+export type RecorderStatus = "idle" | "loading" | "recording" | "error"
 
 export type VoiceRecorderError =
   | "unsupported"
@@ -82,6 +85,25 @@ interface Result {
   stop: () => void
 }
 
+const ERROR_MESSAGES: Record<VoiceRecorderError, string> = {
+  unsupported:       "Браузер не поддерживает распознавание речи",
+  permission_denied: "Доступ к микрофону отклонён",
+  no_device:         "Микрофон не найден",
+  no_speech:         "Речь не распознана — попробуйте ещё раз",
+  aborted:           "Запись отменена",
+  network:           "Сервис распознавания недоступен",
+  unknown:           "Не удалось распознать речь",
+}
+
+const ERROR_CODE_MAP: Record<string, VoiceRecorderError> = {
+  "not-allowed":         "permission_denied",
+  "service-not-allowed": "permission_denied",
+  "audio-capture":       "no_device",
+  "no-speech":           "no_speech",
+  aborted:               "aborted",
+  network:               "network",
+}
+
 export function useVoiceRecorder({
   onTranscript,
   onError,
@@ -112,10 +134,11 @@ export function useVoiceRecorder({
     if (recogRef.current) return
     setError(null)
     setInterimText("")
+    setStatus("loading")
 
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
-      fail("unsupported", "Браузер не поддерживает распознавание речи")
+      fail("unsupported", ERROR_MESSAGES.unsupported)
       return
     }
 
@@ -143,29 +166,10 @@ export function useVoiceRecorder({
     }
 
     rec.onerror = (e) => {
-      const map: Record<string, VoiceRecorderError> = {
-        "not-allowed": "permission_denied",
-        "service-not-allowed": "permission_denied",
-        "audio-capture": "no_device",
-        "no-speech": "no_speech",
-        aborted: "aborted",
-        network: "network",
-      }
-      const code = map[e.error] ?? "unknown"
-      const messages: Record<VoiceRecorderError, string> = {
-        unsupported: "Браузер не поддерживает распознавание речи",
-        permission_denied: "Доступ к микрофону отклонён",
-        no_device: "Микрофон не найден",
-        no_speech: "Речь не распознана — попробуйте ещё раз",
-        aborted: "Запись отменена",
-        network: "Нет соединения с сервисом распознавания",
-        unknown: "Не удалось распознать речь",
-      }
-      if (code === "aborted") {
-        // Тихий abort (user stopped) — не показываем ошибку
-        return
-      }
-      fail(code, messages[code])
+      const code = ERROR_CODE_MAP[e.error] ?? "unknown"
+      // Тихий abort (user stopped) — не считаем ошибкой
+      if (code === "aborted") return
+      fail(code, ERROR_MESSAGES[code])
     }
 
     rec.onend = () => {

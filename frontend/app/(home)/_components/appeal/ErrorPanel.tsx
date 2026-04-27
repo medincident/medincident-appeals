@@ -12,9 +12,9 @@ export function ErrorPanel({ message, onDismiss }: { message: string; onDismiss:
         <p className="text-sm font-medium text-foreground">Не получилось отправить</p>
       </div>
       <p className="text-xs text-muted-foreground pl-6">
-        Что-то пошло не так на нашей стороне. Попробуйте ещё раз — ваш текст сохранён.
+        Ваше обращение сохранено и будет переотправлено, когда появится интернет
       </p>
-      <p className="text-[10px] text-muted-foreground/70 font-mono break-all pl-6">
+      <p className="text-[10px] text-muted-foreground font-mono break-all pl-6">
         {message}
       </p>
       <button

@@ -116,7 +116,7 @@ export function InstallBanner() {
     <div
       role="dialog"
       aria-live="polite"
-      className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur sm:bottom-4"
+      className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur sm:bottom-4"
     >
       <div className="flex items-start gap-3">
         <img

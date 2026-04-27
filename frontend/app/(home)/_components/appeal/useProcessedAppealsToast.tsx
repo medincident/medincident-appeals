@@ -13,46 +13,43 @@ function readAutoshown(): Set<string> {
   if (typeof window === "undefined") return new Set()
   try {
     const raw = localStorage.getItem(AUTOSHOWN_KEY)
-    return raw ? new Set(JSON.parse(raw) as string[]) : new Set()
+    return new Set(raw ? (JSON.parse(raw) as string[]) : [])
   } catch {
     return new Set()
   }
 }
 
-function writeAutoshown(set: Set<string>) {
+function writeAutoshown(ids: Iterable<string>) {
   try {
-    localStorage.setItem(AUTOSHOWN_KEY, JSON.stringify([...set]))
+    localStorage.setItem(AUTOSHOWN_KEY, JSON.stringify([...ids]))
   } catch {}
 }
 
 function pluralize(n: number, one: string, few: string, many: string) {
-  const mod10  = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return one
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  const m10 = n % 10
+  const m100 = n % 100
+  if (m10 === 1 && m100 !== 11) return one
+  if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few
   return many
 }
 
 export function useProcessedAppealsToast() {
   const { notifications } = useNotifications()
-  const router            = useRouter()
-  const firedRef          = React.useRef(false)
+  const router = useRouter()
+  const firedRef = React.useRef(false)
 
   React.useEffect(() => {
-    if (firedRef.current) return
-    if (notifications.length === 0) return
+    if (firedRef.current || notifications.length === 0) return
 
     const autoshown = readAutoshown()
-    const fresh = notifications.filter(
-      (n) => n.type === "processed" && !autoshown.has(n.id)
-    )
+    const fresh = notifications.filter((n) => n.type === "processed" && !autoshown.has(n.id))
     if (fresh.length === 0) return
 
     firedRef.current = true
 
     const count = fresh.length
-    const word  = pluralize(count, "обращение", "обращения", "обращений")
-    const verb  = pluralize(count, "Обработано", "Обработаны", "Обработано")
+    const word = pluralize(count, "обращение", "обращения", "обращений")
+    const verb = pluralize(count, "Обработано", "Обработаны", "Обработано")
 
     toast.custom(
       (t) => (

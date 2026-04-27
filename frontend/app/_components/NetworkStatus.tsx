@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { toast } from "sonner"
+import { mutate as swrMutate } from "swr"
 import { CheckCircle2, RefreshCcw, Wifi, WifiOff } from "lucide-react"
 
 import { createAppealAction } from "@/domain/appeals/actions"
@@ -9,9 +10,18 @@ import { safeError } from "@/lib/log"
 import {
   bumpAttempts,
   countPending,
+  isPendingLocked,
   listPending,
   removePending,
 } from "@/lib/offline/queue"
+
+function revalidateAppeals(): void {
+  void swrMutate(
+    (key) => Array.isArray(key) && key[0] === "appeals",
+    undefined,
+    { revalidate: true },
+  )
+}
 
 const OFFLINE_TOAST_ID = "aimi-offline"
 const FLUSH_TOAST_ID = "aimi-flush"
@@ -19,7 +29,9 @@ const FLUSH_TOAST_ID = "aimi-flush"
 type Phase = "idle" | "flushing"
 
 async function flushQueue(onAfterFlush?: () => void): Promise<void> {
-  const pending = await listPending()
+  const all = await listPending()
+  // Пользователь редактирует — не отправляем, пока не сохранит/отменит.
+  const pending = all.filter((p) => !isPendingLocked(p.localId))
   if (pending.length === 0) return
 
   toast.loading(`Отправка неотправленных: ${pending.length}`, {
@@ -31,6 +43,7 @@ async function flushQueue(onAfterFlush?: () => void): Promise<void> {
   let failed = 0
 
   for (const item of pending) {
+    if (isPendingLocked(item.localId)) continue
     try {
       await createAppealAction(item.text)
       await removePending(item.localId)
@@ -53,6 +66,7 @@ async function flushQueue(onAfterFlush?: () => void): Promise<void> {
         icon: <CheckCircle2 className="h-4 w-4" />,
       },
     )
+    revalidateAppeals()
   }
   if (failed > 0) {
     toast.error(

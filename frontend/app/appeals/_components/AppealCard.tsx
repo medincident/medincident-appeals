@@ -7,14 +7,15 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronUp,
   Clock,
   Loader2,
   X,
 } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 import type { Appeal, AppealStatus } from "@/domain/appeals/types"
+import { cn } from "@/lib/utils"
 import { timeAgo } from "@/lib/time"
 
 const STATUS_CONFIG: Record<
@@ -106,11 +107,12 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
   const { label, variant, Icon, spinning } = STATUS_CONFIG[appeal.status]
 
   return (
-    <div
+    <Card
       ref={cardRef}
-      className={`rounded-xl border bg-card overflow-hidden transition-shadow hover:shadow-sm ${
-        highlighted ? "border-primary ring-2 ring-primary/20" : "border-border"
-      }`}
+      className={cn(
+        "overflow-hidden transition-shadow hover:shadow-sm",
+        highlighted && "border-primary ring-2 ring-primary/20",
+      )}
     >
       <button
         className="w-full text-left px-4 pt-3.5 pb-3 hover:bg-muted/20 transition-colors"
@@ -121,20 +123,22 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
             <p className="text-sm font-medium text-foreground leading-snug line-clamp-2">
               {appeal.summary}
             </p>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-[11px] text-muted-foreground">{timeAgo(appeal.createdAt)}</span>
-            </div>
+            <span className="block text-[11px] text-muted-foreground mt-1">
+              {timeAgo(appeal.createdAt)}
+            </span>
           </div>
 
           <div className="flex items-center gap-2 shrink-0 mt-0.5">
             <Badge variant={variant}>
-              <Icon className={`h-3 w-3 ${spinning ? "animate-spin" : ""}`} />
+              <Icon className={cn("h-3 w-3", spinning && "animate-spin")} />
               {label}
             </Badge>
-            {expanded
-              ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
-              : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            }
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 text-muted-foreground transition-transform duration-200",
+                expanded && "rotate-180",
+              )}
+            />
           </div>
         </div>
       </button>
@@ -153,6 +157,6 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
           )}
         </div>
       )}
-    </div>
+    </Card>
   )
 }

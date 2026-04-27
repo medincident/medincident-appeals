@@ -17,7 +17,7 @@ export function AutoSignIn() {
   }, [callbackUrl]);
 
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-background">
+    <div className="page-bg flex items-center justify-center">
       <p className="text-sm text-muted-foreground">Перенаправление на авторизацию…</p>
     </div>
   );

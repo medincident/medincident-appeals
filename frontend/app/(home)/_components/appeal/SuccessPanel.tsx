@@ -10,9 +10,8 @@ export function SuccessPanel({ appeal, fading }: { appeal: Appeal; fading: boole
   return (
     <div
       className={cn(
-        "flex flex-col items-center text-center gap-3 py-4",
+        "flex flex-col items-center text-center gap-3 py-4 transition-opacity duration-500",
         fading ? "opacity-0" : "opacity-100 animate-fade-in",
-        "transition-opacity duration-500",
       )}
     >
       <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
@@ -27,7 +26,7 @@ export function SuccessPanel({ appeal, fading }: { appeal: Appeal; fading: boole
           >
             Ваше обращение
           </Link>{" "}
-          поставлено в очередь
+          отправлено
         </p>
         <p className="text-xs text-muted-foreground max-w-sm">
           Спасибо, что поделились — это помогает нам становиться лучше.

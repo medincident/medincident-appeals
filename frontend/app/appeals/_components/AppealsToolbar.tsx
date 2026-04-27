@@ -5,13 +5,15 @@ import {
   Check,
   CheckCheck,
   Clock,
+  CloudOff,
   Loader2,
   Search,
   X,
 } from "lucide-react"
 
+import { Chip } from "@/components/ui/chip"
 import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
+import { useOnlineStatus } from "@/lib/useOnlineStatus"
 import type { AppealStatus } from "@/domain/appeals/types"
 
 interface StatusChip {
@@ -29,30 +31,29 @@ const STATUS_CHIPS: readonly StatusChip[] = [
   { value: "rejected",   label: "Отклонено",      Icon: X,          color: "text-destructive" },
 ]
 
-const EDGE_FADE_STYLE: React.CSSProperties = {
-  maskImage:
-    "linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent)",
-  WebkitMaskImage:
-    "linear-gradient(to right, transparent, #000 1rem, #000 calc(100% - 1rem), transparent)",
-}
-
 interface AppealsToolbarProps {
   search: string
   onSearchChange: (s: string) => void
   statuses: AppealStatus[]
   onStatusesChange: (s: AppealStatus[]) => void
+  showPending: boolean
+  onShowPendingChange: (v: boolean) => void
+  pendingCount: number
 }
 
-/**
- * Toolbar над списком обращений: поле поиска + мульти-селект чипов по статусу.
- */
 export function AppealsToolbar({
   search,
   onSearchChange,
   statuses,
   onStatusesChange,
+  showPending,
+  onShowPendingChange,
+  pendingCount,
 }: AppealsToolbarProps) {
-  function toggle(value: AppealStatus) {
+  const online = useOnlineStatus()
+  const allActive = statuses.length === 0 && !showPending
+
+  function toggleStatus(value: AppealStatus) {
     onStatusesChange(
       statuses.includes(value)
         ? statuses.filter((s) => s !== value)
@@ -85,57 +86,38 @@ export function AppealsToolbar({
         )}
       </div>
 
-      <div className="-mx-4" style={EDGE_FADE_STYLE}>
+      <div className="-mx-4 scroll-edge-fade-x">
         <div
           className="flex gap-2 overflow-x-auto scrollbar-slim-x px-4 pt-1 pb-1.5"
           role="toolbar"
           aria-label="Фильтр по статусу обращения"
         >
-          <Chip active={statuses.length === 0} onClick={() => onStatusesChange([])}>
+          <Chip active={allActive} onClick={() => { onStatusesChange([]); onShowPendingChange(false) }}>
             Все
           </Chip>
-          {STATUS_CHIPS.map(({ value, label, Icon, color }) => {
-            const active = statuses.includes(value)
-            return (
-              <Chip
-                key={value}
-                active={active}
-                onClick={() => toggle(value)}
-                colorClass={color}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {label}
-              </Chip>
-            )
-          })}
+          {!online && pendingCount > 0 && (
+            <Chip
+              variant="success"
+              active={showPending}
+              onClick={() => onShowPendingChange(!showPending)}
+            >
+              <CloudOff className="h-3.5 w-3.5" />
+              Оффлайн ({pendingCount})
+            </Chip>
+          )}
+          {STATUS_CHIPS.map(({ value, label, Icon, color }) => (
+            <Chip
+              key={value}
+              active={statuses.includes(value)}
+              onClick={() => toggleStatus(value)}
+              className={color}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </Chip>
+          ))}
         </div>
       </div>
     </div>
-  )
-}
-
-interface ChipProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  active: boolean
-  /** В неактивном состоянии — цвет иконки и текста. В активном перебивается primary-foreground. */
-  colorClass?: string
-}
-
-function Chip({ active, colorClass, className, children, ...rest }: ChipProps) {
-  return (
-    <button
-      type="button"
-      data-active={active}
-      aria-pressed={active}
-      className={cn(
-        "shrink-0 inline-flex items-center gap-2 whitespace-nowrap rounded-full border px-3.5 h-8 text-xs font-medium transition-colors",
-        "border-border bg-card hover:bg-muted/60",
-        colorClass ?? "text-foreground/80",
-        "data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:border-primary",
-        className,
-      )}
-      {...rest}
-    >
-      {children}
-    </button>
   )
 }

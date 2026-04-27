@@ -1,7 +1,8 @@
 "use client"
 
 import useSWR from "swr"
-import { getNotificationsAction } from "./actions"
+
+import { getNotificationsAction, markAllReadAction } from "./actions"
 import type { NotificationItem } from "./types"
 
 const NOTIFICATIONS_KEY = "notifications"
@@ -22,4 +23,16 @@ export function useNotifications() {
     isError: error,
     mutate,
   }
+}
+
+export function useNotificationsController() {
+  const { notifications, mutate } = useNotifications()
+  const unreadCount = notifications.filter((n) => !n.read).length
+
+  const markAllRead = async () => {
+    if (unreadCount === 0) return
+    await mutate(await markAllReadAction(), false)
+  }
+
+  return { notifications, unreadCount, markAllRead }
 }

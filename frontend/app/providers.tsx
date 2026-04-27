@@ -3,8 +3,10 @@
 import * as React from "react";
 import { SessionProvider, useSession } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
+import { SWRConfig } from "swr";
 
 import { Toaster } from "@/components/ui/sonner";
+import { localStorageProvider } from "@/lib/swrCacheProvider";
 import { localLogoutAction } from "@/services/auth/actions";
 import { SessionExpiredDialog } from "./_components/SessionExpiredDialog";
 import { SettingsProvider } from "./_components/SettingsProvider";
@@ -54,10 +56,12 @@ export function Providers({ children }: { children: React.ReactNode }) {
         disableTransitionOnChange
       >
         <SessionGuard>
-          <SettingsProvider>
-            {children}
-            <Toaster position="top-center" />
-          </SettingsProvider>
+          <SWRConfig value={{ provider: localStorageProvider }}>
+            <SettingsProvider>
+              {children}
+              <Toaster position="top-center" offset={72} mobileOffset={64} />
+            </SettingsProvider>
+          </SWRConfig>
         </SessionGuard>
       </ThemeProvider>
     </SessionProvider>

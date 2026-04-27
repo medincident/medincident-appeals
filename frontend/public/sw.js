@@ -2,13 +2,15 @@
 // Стратегия: network-first для навигации с fallback на закэшированную оболочку,
 // cache-first для статических ассетов (иконки, манифест).
 
-const CACHE_VERSION = "aimi-v1";
+const CACHE_VERSION = "aimi-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSETS_CACHE = `${CACHE_VERSION}-assets`;
 const OFFLINE_URL = "/offline";
 
 const SHELL_ASSETS = [
   "/",
+  "/appeals",
+  "/profile",
   "/offline",
   "/manifest.webmanifest",
   "/icons/shield.svg",
