@@ -3,7 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 
-import { tryFlushQueue } from "@/app/_components/NetworkStatus"
+import { tryFlushQueue } from "@/lib/offline/flush"
 import { safeError } from "@/lib/log"
 import {
   type PendingAppeal,

@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto"
 
 import { revalidatePath } from "next/cache"
 
-import { auth } from "@/services/auth/auth"
+import { AuthError, AuthErrorCode } from "@/services/auth/errors"
+import { requireSession } from "@/services/auth/session"
 import { appealsCreated } from "@/lib/metrics"
 import {
   APPEALS_SUBMIT_SUBJECT,
@@ -14,32 +15,7 @@ import {
 
 import type { Appeal, AppealFilters } from "./types"
 
-// BACKEND_URL обязателен — фронт ходит в бэкенд за REST-списком обращений.
-// В compose прокинут как http://backend:8080, для локального dev — либо тот же
-// хост (если dev запущен в той же сети), либо http://localhost:8081 через
-// проброшенный порт.
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://backend:8080"
-
-// ── session helpers ────────────────────────────────────────────────────────
-
-interface SessionLike {
-  userId?: string
-  accessToken?: string
-  error?: string
-}
-
-async function requireSession(): Promise<SessionLike> {
-  const session = (await auth()) as unknown as SessionLike | null
-  if (!session?.userId || !session.accessToken) {
-    throw new Error("NOT_AUTHENTICATED")
-  }
-  if (session.error === "RefreshAccessTokenError") {
-    throw new Error("AUTH_REFRESH_FAILED")
-  }
-  return session
-}
-
-// ── Payload shape (совпадает с backend/main.go appealSubmit / AppealRow) ───
 
 interface AppealSubmitPayload {
   id: string
@@ -48,7 +24,6 @@ interface AppealSubmitPayload {
   user_id: string
 }
 
-// Shape строк из бэкенд-REST /users/:id/appeals (backend.AppealRow).
 interface BackendAppealRow {
   id: string
   user_id: string
@@ -87,7 +62,12 @@ function rowToAppeal(r: BackendAppealRow): Appeal {
   }
 }
 
-async function enqueueViaNats(id: string, text: string, userId: string): Promise<void> {
+async function enqueueViaNats(
+  id: string,
+  text: string,
+  userId: string,
+  idempotencyKey: string,
+): Promise<void> {
   const { js } = await getNats()
   const payload: AppealSubmitPayload = {
     id,
@@ -96,7 +76,7 @@ async function enqueueViaNats(id: string, text: string, userId: string): Promise
     created_at: new Date().toISOString(),
   }
   await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
-    msgID: `submit-${id}`,
+    msgID: `submit-${idempotencyKey}`,
     timeout: 5_000,
   })
 }
@@ -106,12 +86,6 @@ function makeSummary(text: string, max = 50): string {
   return trimmed.length > max ? trimmed.slice(0, max - 1) + "…" : trimmed
 }
 
-// ── Public server actions ──────────────────────────────────────────────────
-
-/**
- * Забирает список обращений пользователя из backend REST.
- * Фильтры серверные: search (ILIKE) + category + subcategory.
- */
 export async function getAppealsAction(
   filters: AppealFilters = {},
 ): Promise<Appeal[]> {
@@ -122,7 +96,7 @@ export async function getAppealsAction(
   if (filters.categoryId) qs.set("category", filters.categoryId)
   if (filters.subcategoryId) qs.set("subcategory", filters.subcategoryId)
 
-  const url = `${BACKEND_URL}/api/v1/users/${encodeURIComponent(session.userId!)}/appeals${qs.toString() ? "?" + qs.toString() : ""}`
+  const url = `${BACKEND_URL}/api/v1/users/${encodeURIComponent(session.userId)}/appeals${qs.toString() ? "?" + qs.toString() : ""}`
 
   const res = await fetch(url, {
     method: "GET",
@@ -131,6 +105,9 @@ export async function getAppealsAction(
     cache: "no-store",
   })
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new AuthError(AuthErrorCode.RefreshFailed)
+    }
     const body = await res.text().catch(() => "")
     throw new Error(`backend /users/.../appeals ${res.status}: ${body}`)
   }
@@ -139,19 +116,20 @@ export async function getAppealsAction(
 }
 
 /**
- * Ставит обращение в очередь: публикует в NATS (user_id из сессии).
- * Бэкенд сохраняет строку со статусом `pending`, затем переводит в
- * `processing` и `processed` по ходу обработки. Фронт не ждёт результат —
- * показывает «спасибо» со ссылкой на обращение.
+ * @param idempotencyKey стабильный ключ (например, localId оффлайн-очереди)
+ *   для дедупа в JetStream при повторных flush'ах. По умолчанию — свежий UUID.
  */
-export async function createAppealAction(text: string): Promise<Appeal> {
+export async function createAppealAction(
+  text: string,
+  idempotencyKey?: string,
+): Promise<Appeal> {
   const trimmed = text.trim()
   if (!trimmed) throw new Error("Текст обращения не может быть пустым")
 
   const session = await requireSession()
 
   const id = randomUUID()
-  await enqueueViaNats(id, trimmed, session.userId!)
+  await enqueueViaNats(id, trimmed, session.userId, idempotencyKey ?? id)
 
   const appeal: Appeal = {
     id,

@@ -11,8 +11,6 @@ export default auth((req) => {
 
 export const config = {
   matcher: [
-    // metrics и api/metrics — публичные: Grafana-UI и Prometheus scrape
-    // ходят без auth, иначе scraper не сможет собирать метрики.
-    "/((?!api/auth|api/metrics|metrics|login|error|_next/static|_next/image|favicon.ico).*)",
+    "/((?!api/auth|api/metrics|metrics|login|error|offline|sw\\.js|manifest\\.webmanifest|icons|_next/static|_next/image|favicon.ico).*)",
   ],
 };

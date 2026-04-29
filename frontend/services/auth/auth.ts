@@ -1,7 +1,12 @@
 import NextAuth from "next-auth";
+import type { JWT } from "next-auth/jwt";
 import ZitadelProvider from "next-auth/providers/zitadel";
+
 import { env } from "@/shared/config/env";
 import { safeError } from "@/lib/log";
+
+import { SessionErrorCode } from "./errors";
+import "./types";
 
 const OIDC_SCOPES = [
   "openid",
@@ -11,14 +16,9 @@ const OIDC_SCOPES = [
   "urn:zitadel:iam:org:project:id:zitadel:aud",
 ].join(" ");
 
-// Жёсткий потолок для хранимого expiresAt. Refresh — единственная «настоящая»
-// проверка авторизации у нас (userinfo мы НЕ дёргаем на каждом запросе),
-// поэтому гарантируем, что он вызывается не реже чем раз в ACCESS_TOKEN_MAX_AGE.
-// 60s = максимальная задержка между revoke-сессией в Zitadel и разлогиниванием
-// пользователя тут (при revoke refresh_token падает → RefreshAccessTokenError →
-// SessionGuard покажет диалог).
-// Синхронизировать с refetchInterval в SessionProvider (app/providers.tsx).
-const ACCESS_TOKEN_MAX_AGE_MS = 60 * 1000;
+// Жёсткий потолок «времени жизни» хранимого expiresAt. Refresh — единственная
+// проверка авторизации (userinfo на каждом запросе мы не дёргаем)
+const ACCESS_TOKEN_MAX_AGE_MS = env.AUTH_REFRESH_CAP_SEC * 1000;
 
 function boundExpiresAt(raw: number | undefined): number {
   const ceil = Date.now() + ACCESS_TOKEN_MAX_AGE_MS;
@@ -26,38 +26,122 @@ function boundExpiresAt(raw: number | undefined): number {
   return Math.min(raw, ceil);
 }
 
-async function refreshAccessToken(token: any) {
+interface RefreshState {
+  inflight: Map<string, Promise<JWT>>;
+  byInputRT: Map<string, { result: JWT; at: number }>;
+  byUserId: Map<string, { result: JWT; at: number }>;
+}
+
+const REFRESH_STATE_KEY = Symbol.for("ai-medincident.frontend.auth.refreshState");
+type GlobalWithRefreshState = typeof globalThis & {
+  [REFRESH_STATE_KEY]?: RefreshState;
+};
+
+const refreshState: RefreshState = ((globalThis as GlobalWithRefreshState)[
+  REFRESH_STATE_KEY
+] ??= {
+  inflight: new Map(),
+  byInputRT: new Map(),
+  byUserId: new Map(),
+});
+
+const RECENT_TTL_MS = 30_000;
+
+function isFresh(at: number): boolean {
+  return Date.now() - at < RECENT_TTL_MS;
+}
+
+async function refreshAccessToken(token: JWT): Promise<JWT> {
+  const refreshToken = token.refreshToken;
+  if (!refreshToken) {
+    return { ...token, error: SessionErrorCode.RefreshAccessTokenError };
+  }
+
+  const cachedByRT = refreshState.byInputRT.get(refreshToken);
+  if (cachedByRT && isFresh(cachedByRT.at)) {
+    return cachedByRT.result;
+  }
+
+  const inflight = refreshState.inflight.get(refreshToken);
+  if (inflight) {
+    return inflight;
+  }
+
+  const promise = doRefresh(token, refreshToken).then((result) => {
+    if (!result.error) {
+      const stamped = { result, at: Date.now() };
+      refreshState.byInputRT.set(refreshToken, stamped);
+      if (token.userId) refreshState.byUserId.set(token.userId, stamped);
+      setTimeout(() => {
+        const e = refreshState.byInputRT.get(refreshToken);
+        if (e === stamped) refreshState.byInputRT.delete(refreshToken);
+      }, RECENT_TTL_MS).unref?.();
+    }
+    return result;
+  }).finally(() => {
+    refreshState.inflight.delete(refreshToken);
+  });
+
+  refreshState.inflight.set(refreshToken, promise);
+  return promise;
+}
+
+async function doRefresh(token: JWT, refreshToken: string): Promise<JWT> {
+  let response: Response;
   try {
-    const response = await fetch(`${env.AUTH_APP_URL}/oauth/v2/token`, {
+    response = await fetch(`${env.AUTH_APP_URL}/oauth/v2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         client_id: env.AUTH_CLIENT_ID,
         grant_type: "refresh_token",
-        refresh_token: token.refreshToken,
-        scope: OIDC_SCOPES,
+        refresh_token: refreshToken,
       }),
     });
-
-    const refreshedTokens = await response.json();
-
-    if (!response.ok) throw refreshedTokens;
-
-    return {
-      ...token,
-      accessToken: refreshedTokens.access_token,
-      expiresAt: boundExpiresAt(
-        refreshedTokens.expires_in ? Date.now() + refreshedTokens.expires_in * 1000 : undefined,
-      ),
-      refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
-      error: undefined,
-    };
-  } catch (error) {
-    // Логируем только name+message, чтобы не утянуть refresh_token / отклик IdP в логи.
-    console.error("[auth] Token refresh failed serios:", error);
-    console.error("[auth] Token refresh failed:", safeError(error));
-    return { ...token, error: "RefreshAccessTokenError" };
+  } catch (err) {
+    console.error("[auth][refresh] network error:", safeError(err));
+    return failOrFallback(token);
   }
+
+  let body: Record<string, unknown>;
+  try {
+    body = await response.json();
+  } catch (err) {
+    console.error(`[auth][refresh] non-JSON response (${response.status}):`, safeError(err));
+    return failOrFallback(token);
+  }
+
+  if (!response.ok) {
+    const code = typeof body.error === "string" ? body.error : "unknown";
+    console.error(`[auth][refresh] failed status=${response.status} code=${code}`);
+    return failOrFallback(token);
+  }
+
+  const accessToken = typeof body.access_token === "string" ? body.access_token : undefined;
+  const newRefreshToken =
+    typeof body.refresh_token === "string" ? body.refresh_token : undefined;
+  const expiresIn = typeof body.expires_in === "number" ? body.expires_in : undefined;
+
+  return {
+    ...token,
+    accessToken,
+    expiresAt: boundExpiresAt(expiresIn ? Date.now() + expiresIn * 1000 : undefined),
+    refreshToken: newRefreshToken ?? refreshToken,
+    error: undefined,
+  };
+}
+
+// Защищает от cookie last-write-wins: параллельный callback, проигравший гонку
+// ротации, не должен затирать рабочую сессию ошибкой.
+function failOrFallback(token: JWT): JWT {
+  const userId = token.userId;
+  if (userId) {
+    const cached = refreshState.byUserId.get(userId);
+    if (cached && isFresh(cached.at)) {
+      return cached.result;
+    }
+  }
+  return { ...token, error: SessionErrorCode.RefreshAccessTokenError };
 }
 
 const useSecureCookies = env.APP_URL.startsWith("https://");
@@ -91,9 +175,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     async jwt({ token, account }) {
       if (account) {
-        if (!account.refresh_token) {
-          console.warn("[auth] Zitadel did not return refresh_token — offline_access scope missing or denied");
-        }
         return {
           ...token,
           accessToken: account.access_token,
@@ -105,33 +186,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         };
       }
 
-      // Проверка авторизации = рефреш. Рефрешимся, если:
-      //  1) expiresAt уже прошёл — токен протух;
-      //  2) expiresAt далеко за пределами нашего cap — старая сессия с
-      //     устаревшим «оптимистичным» expiresAt; уронить её до cap нельзя
-      //     без знания момента выдачи, поэтому просто дёргаем refresh.
-      const now = Date.now();
-      const remaining = (token.expiresAt as number) - now;
+      const remaining = (token.expiresAt ?? 0) - Date.now();
       const needsRefresh = remaining <= 0 || remaining > ACCESS_TOKEN_MAX_AGE_MS + 30_000;
       if (!needsRefresh) return token;
 
       if (!token.refreshToken) {
-        console.warn("[auth] token expired but no refreshToken available — user will be signed out");
-        return { ...token, error: "RefreshAccessTokenError" };
+        return { ...token, error: SessionErrorCode.RefreshAccessTokenError };
       }
 
-      return await refreshAccessToken(token);
+      return refreshAccessToken(token);
     },
 
     async session({ session, token }) {
-      if (token) {
-        // @ts-ignore
-        session.accessToken = token.accessToken;
-        // @ts-ignore
-        session.userId = token.userId;
-        // @ts-ignore
-        session.error = token.error;
-      }
+      session.accessToken = token.accessToken;
+      // AdapterSession.userId типизирован как обязательный string —
+      // присваиваем только при наличии, чтобы не сужать тип до never.
+      if (token.userId) session.userId = token.userId;
+      session.error = token.error;
+      session.expiresAt = token.expiresAt;
       return session;
     },
   },

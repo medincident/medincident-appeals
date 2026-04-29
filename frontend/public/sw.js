@@ -1,17 +1,16 @@
-// AI MedIncident PWA service worker.
-// Стратегия: network-first для навигации с fallback на закэшированную оболочку,
-// cache-first для статических ассетов (иконки, манифест).
+// Стратегия:
+//   - статические ассеты (/icons, manifest, /_next/static): cache-first
+//   - навигация: network-only с fallback на /offline (HTML с ПДн не кэшируем)
+//   - /api/*: не трогаем
+// При logout клиент шлёт `{ type: "clear-shell" }` — сбрасываем shell-cache.
 
-const CACHE_VERSION = "aimi-v3";
+const CACHE_VERSION = "aimi-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSETS_CACHE = `${CACHE_VERSION}-assets`;
 const OFFLINE_URL = "/offline";
 
 const SHELL_ASSETS = [
-  "/",
-  "/appeals",
-  "/profile",
-  "/offline",
+  OFFLINE_URL,
   "/manifest.webmanifest",
   "/icons/shield.svg",
   "/icons/shield-maskable.svg",
@@ -44,8 +43,24 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data && event.data.type === "SKIP_WAITING") {
+  const data = event.data;
+  if (!data || typeof data !== "object") return;
+  if (data.type === "SKIP_WAITING") {
     self.skipWaiting();
+    return;
+  }
+  if (data.type === "clear-shell") {
+    event.waitUntil(
+      caches.delete(SHELL_CACHE).then(() =>
+        caches.open(SHELL_CACHE).then((cache) =>
+          Promise.all(
+            SHELL_ASSETS.map((url) =>
+              cache.add(new Request(url, { cache: "reload" })).catch(() => {})
+            )
+          )
+        )
+      )
+    );
   }
 });
 
@@ -69,7 +84,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Никогда не кэшируем авторизацию и server actions.
   if (
     url.pathname.startsWith("/api/auth") ||
     url.pathname.startsWith("/api/")
@@ -99,18 +113,11 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          const res = await fetch(request);
-          const cache = await caches.open(SHELL_CACHE);
-          cache.put(request, res.clone()).catch(() => {});
-          return res;
+          return await fetch(request);
         } catch (err) {
           const cache = await caches.open(SHELL_CACHE);
-          const cached = await cache.match(request);
-          if (cached) return cached;
           const fallback = await cache.match(OFFLINE_URL);
           if (fallback) return fallback;
-          const shell = await cache.match("/");
-          if (shell) return shell;
           throw err;
         }
       })()

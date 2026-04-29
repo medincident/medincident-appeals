@@ -4,14 +4,6 @@ import * as React from "react"
 
 import { listPending, PENDING_CHANGED_EVENT, type PendingAppeal } from "@/lib/offline/queue"
 
-/**
- * Подписка на оффлайн-очередь IndexedDB.
- *
- * Перечитывает список при наступлении события aimi-pending-changed (его шлют
- * enqueueAppeal/updatePending/removePending) и при возврате/потере сети — на
- * случай, если flushQueue в NetworkStatus сработает раньше, чем мы получим
- * сигнал из другого таба.
- */
 export function usePendingAppeals() {
   const [items, setItems] = React.useState<PendingAppeal[]>([])
   const [loading, setLoading] = React.useState(true)

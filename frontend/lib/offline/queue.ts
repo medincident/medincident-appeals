@@ -9,8 +9,6 @@ function emitChanged(): void {
   window.dispatchEvent(new CustomEvent(PENDING_CHANGED_EVENT))
 }
 
-// Локи на отправку: пока пользователь редактирует pending-обращение,
-// flushQueue должен его пропускать. Set живёт в памяти таба.
 const editLocks = new Set<string>()
 
 export function lockPending(localId: string): void {
@@ -26,23 +24,23 @@ export function isPendingLocked(localId: string): boolean {
 }
 
 const DB_NAME = "aimi-offline"
-// v2: миграция с plaintext-формата (хранил поле `text`) на encrypted (`cipher`).
 const DB_VERSION = 2
 const STORE = "pending-appeals"
 
 interface StoredAppeal {
   localId: string
-  cipher: string // encrypted base64
+  cipher: string
   createdAt: string
   attempts: number
+  nextAttemptAt?: string
 }
 
 export interface PendingAppeal {
-  /** Локальный id, чтобы не путать с id обращения, которое сгенерирует сервер. */
   localId: string
   text: string
   createdAt: string
   attempts: number
+  nextAttemptAt?: string
 }
 
 function hasIDB(): boolean {
@@ -54,9 +52,6 @@ function openDB(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
     req.onupgradeneeded = () => {
       const db = req.result
-      // На любом апгрейде с предыдущей версии безопаснее снести стор:
-      // данные либо ещё в plaintext-формате (PII!), либо зашифрованы старым
-      // ключом, к которому уже нет доступа.
       if (db.objectStoreNames.contains(STORE)) {
         db.deleteObjectStore(STORE)
       }
@@ -78,9 +73,7 @@ async function tx<T>(
       const store = t.objectStore(STORE)
       let result: T | undefined
       Promise.resolve(fn(store))
-        .then((v) => {
-          result = v
-        })
+        .then((v) => { result = v })
         .catch(reject)
       t.oncomplete = () => resolve(result as T)
       t.onerror = () => reject(t.error)
@@ -145,14 +138,57 @@ export async function listPending(): Promise<PendingAppeal[]> {
   for (const row of stored) {
     try {
       const text = await decryptString(row.cipher)
-      items.push({ localId: row.localId, text, createdAt: row.createdAt, attempts: row.attempts })
+      items.push({
+        localId: row.localId,
+        text,
+        createdAt: row.createdAt,
+        attempts: row.attempts,
+        nextAttemptAt: row.nextAttemptAt,
+      })
     } catch {
-      // Ключ потерян (новый таб, sessionStorage очистился): запись не
-      // расшифровать — удаляем, чтобы не висела навсегда.
+      // Ключ потерян (новый таб, sessionStorage очищен) — удаляем
+      // нечитаемую запись.
       await removePending(row.localId).catch(() => {})
     }
   }
   return items
+}
+
+export function isDue(p: PendingAppeal, now: number = Date.now()): boolean {
+  if (!p.nextAttemptAt) return true
+  const t = Date.parse(p.nextAttemptAt)
+  return Number.isFinite(t) ? t <= now : true
+}
+
+const BACKOFF_BASE_MS = 30_000
+const BACKOFF_CAP_MS = 30 * 60_000
+
+function backoffDelay(attempts: number): number {
+  const base = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1), BACKOFF_CAP_MS)
+  const jitter = Math.floor(base * 0.2 * Math.random())
+  return base + jitter
+}
+
+export async function markFlushFailed(localId: string): Promise<void> {
+  if (!hasIDB()) return
+  await tx("readwrite", (store) => {
+    return new Promise<void>((resolve, reject) => {
+      const req = store.get(localId)
+      req.onsuccess = () => {
+        const current = req.result as StoredAppeal | undefined
+        if (!current) return resolve()
+        current.attempts += 1
+        current.nextAttemptAt = new Date(
+          Date.now() + backoffDelay(current.attempts),
+        ).toISOString()
+        const putReq = store.put(current)
+        putReq.onsuccess = () => resolve()
+        putReq.onerror = () => reject(putReq.error)
+      }
+      req.onerror = () => reject(req.error)
+    })
+  })
+  emitChanged()
 }
 
 export async function removePending(localId: string): Promise<void> {
@@ -162,24 +198,6 @@ export async function removePending(localId: string): Promise<void> {
   })
   unlockPending(localId)
   emitChanged()
-}
-
-export async function bumpAttempts(localId: string): Promise<void> {
-  if (!hasIDB()) return
-  await tx("readwrite", (store) => {
-    return new Promise<void>((resolve, reject) => {
-      const req = store.get(localId)
-      req.onsuccess = () => {
-        const current = req.result as StoredAppeal | undefined
-        if (!current) return resolve()
-        current.attempts += 1
-        const putReq = store.put(current)
-        putReq.onsuccess = () => resolve()
-        putReq.onerror = () => reject(putReq.error)
-      }
-      req.onerror = () => reject(req.error)
-    })
-  })
 }
 
 export async function countPending(): Promise<number> {

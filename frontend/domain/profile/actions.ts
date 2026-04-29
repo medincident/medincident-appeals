@@ -1,15 +1,12 @@
 "use server"
 
-import { auth } from "@/services/auth/auth"
+import { requireSession } from "@/services/auth/session"
 import { getProfile } from "@/services/auth/requests/profile"
 import type { PersonalInfo } from "./types"
 
 export async function getProfileAction(): Promise<PersonalInfo> {
-  const session = await auth()
-  if (!session) throw new Error("Unauthorized")
-
-  const userId = (session as any).userId as string
-  const result = await getProfile(userId)
+  const session = await requireSession()
+  const result = await getProfile(session.userId)
 
   if (!result.success) {
     throw new Error(result.error.message || "Не удалось получить данные пользователя")

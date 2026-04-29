@@ -1,17 +1,9 @@
 "use client"
 
-/**
- * AES-256-GCM шифрование payload оффлайн-очереди.
- *
- * Ключ держим в sessionStorage:
- *  - живёт пока открыт таб (закрыли — ключ ушёл, очередь не расшифруется);
- *  - не доступен другим вкладкам / iframe → защищает от XSS, открывающего
- *    оффлайн-обращения чужой вкладки;
- *  - при потере ключа очередь чистится в ensureKey() → драфтные обращения
- *    теряются, но для оффлайн-черновиков это приемлемая цена.
- *
- * Формат поля `payload` в IDB: base64( [12B nonce] [N ciphertext] [16B tag] ).
- */
+// AES-256-GCM шифрование payload оффлайн-очереди.
+// Ключ живёт в sessionStorage (per-tab) — закрытие таба убирает возможность
+// расшифровки, что ограничивает blast radius XSS между табами/iframe.
+// Формат ciphertext в IDB: base64( [12B nonce] [N ciphertext] [16B tag] ).
 
 const STORAGE_KEY = "aimi-offline-key-v1"
 const NONCE_BYTES = 12

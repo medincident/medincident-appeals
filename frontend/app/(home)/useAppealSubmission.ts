@@ -6,6 +6,8 @@ import { toast } from "sonner"
 import { createAppealAction } from "@/domain/appeals/actions"
 import { useAppeals } from "@/domain/appeals/hooks"
 import type { Appeal } from "@/domain/appeals/types"
+import { isAuthError } from "@/services/auth/errors"
+import { useOnlineStatus } from "@/lib/useOnlineStatus"
 import { enqueueAppeal } from "@/lib/offline/queue"
 
 type SubmissionState =
@@ -16,6 +18,20 @@ type SubmissionState =
 const FADE_DELAY = 2000
 const RESET_DELAY = 2500
 const FOCUS_DELAY = 50
+
+function isLikelyNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false
+  const msg = err.message.toLowerCase()
+  return (
+    err.name === "TypeError" ||
+    err.name === "AbortError" ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("timeout") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound")
+  )
+}
 
 const errorMessage = (err: unknown, fallback: string) =>
   err instanceof Error ? err.message : fallback
@@ -28,6 +44,7 @@ export function useAppealSubmission() {
   const textareaRef = React.useRef<HTMLTextAreaElement>(null)
   const timersRef = React.useRef<number[]>([])
 
+  const online = useOnlineStatus()
   const { mutate: mutateAppeals } = useAppeals()
 
   const clearTimers = () => {
@@ -51,6 +68,13 @@ export function useAppealSubmission() {
     focusInput()
   }, [])
 
+  const enqueueAndNotify = async (trimmed: string, savedOfflineMsg: string) => {
+    await enqueueAppeal(trimmed)
+    setText("")
+    toast.success("Сохранено локально", { description: savedOfflineMsg })
+    focusInput()
+  }
+
   const submit = async () => {
     const trimmed = text.trim()
     if (!trimmed || submitting) return
@@ -58,16 +82,9 @@ export function useAppealSubmission() {
     setSubmitting(true)
     setSubmission({ kind: "idle" })
 
-    const offline = typeof navigator !== "undefined" && navigator.onLine === false
-
     try {
-      if (offline) {
-        await enqueueAppeal(trimmed)
-        setText("")
-        toast.success("Сохранено локально", {
-          description: "Отправим автоматически, когда появится интернет.",
-        })
-        focusInput()
+      if (!online) {
+        await enqueueAndNotify(trimmed, "Отправим автоматически, когда появится интернет.")
         return
       }
 
@@ -85,10 +102,20 @@ export function useAppealSubmission() {
         focusInput()
       }, RESET_DELAY)
     } catch (err) {
-      setSubmission({
-        kind: "error",
-        message: errorMessage(err, offline ? "Не удалось сохранить офлайн" : "Неизвестная ошибка"),
-      })
+      if (isAuthError(err)) {
+        setSubmission({ kind: "idle" })
+        return
+      }
+      if (isLikelyNetworkError(err)) {
+        try {
+          await enqueueAndNotify(trimmed, "Сервер не ответил — отправим, как только будет связь.")
+          return
+        } catch (saveErr) {
+          setSubmission({ kind: "error", message: errorMessage(saveErr, "Не удалось сохранить локально") })
+          return
+        }
+      }
+      setSubmission({ kind: "error", message: errorMessage(err, "Неизвестная ошибка") })
     } finally {
       setSubmitting(false)
     }

@@ -1,10 +1,16 @@
 import { z } from "zod";
 import { type ResultError, type Result } from "@/domain/error";
-import { type AxiosError, type AxiosResponse } from "axios";
+import axios, { type AxiosError, type AxiosResponse } from "axios";
+
+interface ApiErrorBody {
+  message?: string;
+  code?: string | number;
+  details?: unknown;
+}
 
 export async function handleApiRequest<T>(
-  requestFn: () => Promise<AxiosResponse<any>>,
-  schema?: z.ZodSchema<T>
+  requestFn: () => Promise<AxiosResponse<unknown>>,
+  schema?: z.ZodSchema<T>,
 ): Promise<Result<T>> {
   try {
     const response = await requestFn();
@@ -27,9 +33,9 @@ export async function handleApiRequest<T>(
     }
 
     return { success: true, data: data as T };
-  } catch (error: any) {
-    if (error.isAxiosError) {
-      const axiosError = error as AxiosError<any>;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError<ApiErrorBody>;
       const status = axiosError.response?.status;
       const responseData = axiosError.response?.data;
 
@@ -52,7 +58,7 @@ export async function handleApiRequest<T>(
       success: false,
       error: {
         type: "ERROR",
-        message: error.message || "Unknown error",
+        message: error instanceof Error ? error.message : "Unknown error",
       },
     };
   }

@@ -7,7 +7,9 @@ import { SWRConfig } from "swr";
 
 import { Toaster } from "@/components/ui/sonner";
 import { localStorageProvider } from "@/lib/swrCacheProvider";
+import { clearOfflineData } from "@/lib/offline/cleanup";
 import { localLogoutAction } from "@/services/auth/actions";
+import { SessionErrorCode } from "@/services/auth/errors";
 import { SessionExpiredDialog } from "./_components/SessionExpiredDialog";
 import { SettingsProvider } from "./_components/SettingsProvider";
 
@@ -15,21 +17,21 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
   const { data, status } = useSession();
   const loggingOutRef = React.useRef(false);
 
-  // RefreshAccessTokenError = был залогинен, refresh-токен умер.
-  // Показываем диалог «войдите заново» — автоматически выкидывать нельзя,
-  // пользователь может потерять несохранённые данные.
-  const refreshFailed = (data as any)?.error === "RefreshAccessTokenError";
+  // Refresh умер, но пользователя не выкидываем — пусть сохранит несохранённое
+  // через SessionExpiredDialog → re-login.
+  const refreshFailed = data?.error === SessionErrorCode.RefreshAccessTokenError;
 
   React.useEffect(() => {
     if (status === "loading") return;
     if (loggingOutRef.current) return;
     if (refreshFailed) return;
 
-    // "unauthenticated" без предыдущей сессии — обычный кейс, уводим на /login
-    // (там AutoSignIn сам редиректит в Zitadel).
     if (status === "unauthenticated") {
       loggingOutRef.current = true;
-      void localLogoutAction();
+      void (async () => {
+        await clearOfflineData();
+        await localLogoutAction();
+      })();
     }
   }, [status, refreshFailed]);
 
@@ -44,8 +46,7 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider
-      // 60s = синхронизируем с ACCESS_TOKEN_MAX_AGE_MS в services/auth/auth.ts,
-      // чтобы revoke сессии в Zitadel ловился максимум за минуту.
+      // Синхронизировано с AUTH_REFRESH_CAP_SEC из shared/config/env.ts.
       refetchInterval={60}
       refetchOnWindowFocus
     >

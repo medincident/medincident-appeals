@@ -1,15 +1,3 @@
-/**
- * Единое подключение к NATS JetStream для server-actions.
- *
- * Фронтенд публикует обращения в subject `appeals.submit` через JetStream
- * (persistence на диск — ack от стрима подтверждает запись), и слушает ответы
- * на `appeals.result.<id>` через обычный core subscriber (первое сообщение
- * выигрывает).
- *
- * Соединение живёт на всё время Node-процесса, в dev-HMR защищено через
- * globalThis-кэш — чтобы не открывать новый клиент на каждом ре-импорте.
- */
-
 import {
   connect,
   JSONCodec,
@@ -37,13 +25,24 @@ type GlobalWithNats = typeof globalThis & {
   [GLOBAL_KEY]?: Promise<NatsState>
 }
 
+const DUPLICATE_WINDOW_NS = 30 * 60 * 1_000_000_000 // 30m
+
 async function ensureAppealsStream(nc: NatsConnection): Promise<void> {
-  // jetstreamManager — админский API JetStream (создание стримов и т.п.).
-  // Идемпотентно: если стрим есть — ничего не делаем. Так же делает бэкенд;
-  // дублируем на фронте, чтобы первый старт тоже работал в любом порядке.
   const jsm = await nc.jetstreamManager()
+  const baseConfig = {
+    name: APPEALS_STREAM,
+    subjects: [APPEALS_SUBMIT_SUBJECT, `${APPEALS_RESULT_SUBJECT_PREFIX}*`],
+    storage: StorageType.File,
+    retention: RetentionPolicy.Limits,
+    max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7d
+    duplicate_window: DUPLICATE_WINDOW_NS,
+    num_replicas: 1,
+  }
   try {
-    await jsm.streams.info(APPEALS_STREAM)
+    const info = await jsm.streams.info(APPEALS_STREAM)
+    if (info.config.duplicate_window !== DUPLICATE_WINDOW_NS) {
+      await jsm.streams.update(APPEALS_STREAM, baseConfig)
+    }
     return
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -51,14 +50,7 @@ async function ensureAppealsStream(nc: NatsConnection): Promise<void> {
       throw err
     }
   }
-  await jsm.streams.add({
-    name: APPEALS_STREAM,
-    subjects: [APPEALS_SUBMIT_SUBJECT, `${APPEALS_RESULT_SUBJECT_PREFIX}*`],
-    storage: StorageType.File,
-    retention: RetentionPolicy.Limits,
-    max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7d в наносекундах
-    num_replicas: 1,
-  })
+  await jsm.streams.add(baseConfig)
 }
 
 async function buildNatsState(): Promise<NatsState> {
@@ -73,8 +65,6 @@ async function buildNatsState(): Promise<NatsState> {
   ;(async () => {
     for await (const s of nc.status()) {
       if (s.type === "disconnect" || s.type === "error") {
-        // Логируем только тип события: data может содержать причины отказа от
-        // сервера (включая токены/строки подключения) — наружу не пускаем.
         console.warn("[nats] status:", s.type)
       }
     }
@@ -87,7 +77,6 @@ export function getNats(): Promise<NatsState> {
   const g = globalThis as GlobalWithNats
   if (!g[GLOBAL_KEY]) {
     g[GLOBAL_KEY] = buildNatsState().catch((err) => {
-      // Снимаем промис с кэша, чтобы следующий вызов попытался заново.
       delete g[GLOBAL_KEY]
       throw err
     })

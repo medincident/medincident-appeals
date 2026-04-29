@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { clearOfflineData } from "@/lib/offline/cleanup"
 
 interface SessionExpiredDialogProps {
   open: boolean
@@ -23,8 +24,7 @@ export function SessionExpiredDialog({ open }: SessionExpiredDialogProps) {
 
   async function handleLogin() {
     setPending(true)
-    // signIn редиректит на Zitadel; если OIDC-сессия жива, Zitadel молча
-    // отдаёт токен назад — пользователь не увидит форму логина.
+    await clearOfflineData()
     await signIn("zitadel", { redirectTo: window.location.pathname + window.location.search })
   }
 

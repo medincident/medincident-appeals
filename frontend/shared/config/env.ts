@@ -9,6 +9,9 @@ const envConfig = createEnv({
     AUTH_CLIENT_ID: z.string().min(1),
     AUTH_SECRET: z.string().min(32),
 
+    // Настройка времени жизни access-токена (секунды).
+    AUTH_REFRESH_CAP_SEC: z.coerce.number().int().min(15).max(3600).default(60),
+
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   },
 
@@ -22,6 +25,7 @@ const envConfig = createEnv({
     APP_URL: process.env.APP_URL,
     AUTH_CLIENT_ID: process.env.AUTH_CLIENT_ID,
     AUTH_SECRET: process.env.AUTH_SECRET,
+    AUTH_REFRESH_CAP_SEC: process.env.AUTH_REFRESH_CAP_SEC,
 
     NEXT_PUBLIC_AUTH_APP_URL: process.env.NEXT_PUBLIC_AUTH_APP_URL,
 
