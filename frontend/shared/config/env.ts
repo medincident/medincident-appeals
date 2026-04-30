@@ -3,20 +3,16 @@ import { z } from "zod";
 
 const envConfig = createEnv({
   server: {
-    AUTH_APP_URL: z.url(),
-    AUTH_ORG_ID: z.string().min(1),
-    APP_URL: z.url(),
-    AUTH_CLIENT_ID: z.string().min(1),
-    AUTH_SECRET: z.string().min(32),
+    AUTH_APP_URL: z.url().default("http://localhost:8080"),
+    AUTH_ORG_ID: z.string().min(1).default("123456789"),
+    APP_URL: z.url().default("http://localhost:8080"),
+    AUTH_CLIENT_ID: z.string().min(1).default("123456789"),
+    AUTH_SECRET: z.string().min(32).default("placeholder_secret_at_least_32_chars_long"),
 
     // Настройка времени жизни access-токена (секунды).
     AUTH_REFRESH_CAP_SEC: z.coerce.number().int().min(15).max(3600).default(60),
 
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  },
-
-  client: {
-    NEXT_PUBLIC_AUTH_APP_URL: z.url(),
   },
 
   runtimeEnv: {
@@ -26,8 +22,6 @@ const envConfig = createEnv({
     AUTH_CLIENT_ID: process.env.AUTH_CLIENT_ID,
     AUTH_SECRET: process.env.AUTH_SECRET,
     AUTH_REFRESH_CAP_SEC: process.env.AUTH_REFRESH_CAP_SEC,
-
-    NEXT_PUBLIC_AUTH_APP_URL: process.env.NEXT_PUBLIC_AUTH_APP_URL,
 
     NODE_ENV: process.env.NODE_ENV,
   },

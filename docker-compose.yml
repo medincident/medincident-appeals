@@ -11,31 +11,17 @@ x-healthcheck: &default-healthcheck
   retries: 12
   start_period: 20s
 
-x-frontend-env: &frontend-env
-  AUTH_APP_URL: ${AUTH_APP_URL}
-  AUTH_ORG_ID: ${AUTH_ORG_ID}
-  AUTH_CLIENT_ID: ${AUTH_CLIENT_ID}
-  APP_URL: ${APP_URL}
-  AUTH_SECRET: ${AUTH_SECRET}
-  NEXT_PUBLIC_AUTH_APP_URL: ${NEXT_PUBLIC_AUTH_APP_URL}
-
 services:
   frontend:
     profiles: [prod]
     build:
       context: ./frontend
-      dockerfile: Dockerfile.production
-      args:
-        <<: *frontend-env
+      dockerfile: Dockerfile.prod
     container_name: frontend
     restart: unless-stopped
     ports:
       - "8082:3000"
-    environment:
-      <<: *frontend-env
-      AUTH_URL: ${AUTH_URL}
-      NATS_URL: ${NATS_URL}
-      BACKEND_URL: ${BACKEND_URL}
+    env_file: .env
     networks:
       - ai-medincident
     depends_on:
@@ -52,11 +38,8 @@ services:
     restart: unless-stopped
     ports:
       - "8082:3000"
+    env_file: .env
     environment:
-      <<: *frontend-env
-      AUTH_URL: ${AUTH_URL}
-      NATS_URL: ${NATS_URL}
-      BACKEND_URL: ${BACKEND_URL}
       WATCHPACK_POLLING: "true"
       CHOKIDAR_USEPOLLING: "true"
     volumes:
