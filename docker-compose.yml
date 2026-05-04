@@ -123,9 +123,7 @@ services:
       dockerfile: Dockerfile
     container_name: ai-medincident-llm
     restart: unless-stopped
-    environment:
-      OLLAMA_MODEL: ${OLLAMA_MODEL}
-      NATS_URL: ${NATS_URL}
+    env_file: .env
     volumes:
       - ollama_data:/root/.ollama
     # Для настройки GPU:
