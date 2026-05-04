@@ -193,7 +193,7 @@ def main():
     thes_r1, thes_r2, thes_rl = [], [], []
     latencies = []
 
-    for i, (text, label, expected) in enumerate(zip(test_texts, test_labels, test_answers)):
+    for i, (text, label, expected) in enumerate(zip(test_texts, test_labels, test_answers, strict=False)):
         decorated = f"Обращение пациента:\n{text}\n\n{cats_block}"
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -268,7 +268,7 @@ def main():
 
     f1m = f1_score(all_true_imp, all_preds_imp, average="macro") if all_true_imp else 0.0
     f1b = f1_score(all_true_imp, all_preds_imp, average="binary") if all_true_imp else 0.0
-    imp_acc = sum(1 for a, b in zip(all_true_imp, all_preds_imp) if a == b) / len(all_true_imp) if all_true_imp else 0.0
+    imp_acc = sum(1 for a, b in zip(all_true_imp, all_preds_imp, strict=False) if a == b) / len(all_true_imp) if all_true_imp else 0.0
 
     # Docker memory
     docker_mem = get_container_memory()
@@ -278,12 +278,12 @@ def main():
     print(f"  LLM BENCHMARK (Qwen2.5-3B, zero-shot, {args.model})")
     print(f"{'='*65}")
 
-    print(f"\n--- 1. QUALITY METRICS ---")
+    print("\n--- 1. QUALITY METRICS ---")
     print(f"  Tested:              {len(latencies)} examples")
     print(f"  Failed requests:     {failed_count}")
     print(f"  Valid JSON:          {valid_json_count}/{valid_json_count + invalid_json_count}"
           f" ({valid_json_count/(valid_json_count+invalid_json_count)*100:.0f}%)" if (valid_json_count + invalid_json_count) > 0 else "")
-    print(f"  Classification:")
+    print("  Classification:")
     print(f"    is_important acc:  {imp_acc:.4f}")
     print(f"    is_important F1-m: {f1m:.4f}")
     print(f"    is_important F1-b: {f1b:.4f}")
@@ -296,7 +296,7 @@ def main():
     print(f"  Theses ({len(thes_rl)} important examples):")
     print(f"    ROUGE-1: {avg(thes_r1):.4f}  ROUGE-2: {avg(thes_r2):.4f}  ROUGE-L: {avg(thes_rl):.4f}")
 
-    print(f"\n--- 2. LATENCY ---")
+    print("\n--- 2. LATENCY ---")
     if latencies:
         sorted_lat = sorted(latencies)
         print(f"    Avg:   {avg(latencies)*1000:.0f} ms")
@@ -306,7 +306,7 @@ def main():
         print(f"    Max:   {max(latencies)*1000:.0f} ms")
         print(f"    Total: {sum(latencies):.0f} s")
 
-    print(f"\n--- 3. MEMORY ---")
+    print("\n--- 3. MEMORY ---")
     print(f"    Model size:       {model_size}")
     print(f"    Docker container: {docker_mem}")
 

@@ -90,6 +90,7 @@ async def lifespan(app: FastAPI):
     await runner.start()
 
     watcher_task = None
+    warmup_task = None
     try:
         nats_conn = await connect_with_retry(NATS_URL)
         js = nats_conn.jetstream()
@@ -104,13 +105,15 @@ async def lifespan(app: FastAPI):
                 await asyncio.sleep(2.0)
             logger.warning("Categories not loaded yet — watcher will pick them up")
 
-        asyncio.create_task(warmup())
+        warmup_task = asyncio.create_task(warmup())
         watcher_task = asyncio.create_task(watch_categories(js, KV_BUCKET, KV_KEY, apply))
     except Exception as exc:
         logger.warning("NATS unavailable: %s — service starts without categories", exc)
 
     yield
 
+    if warmup_task:
+        warmup_task.cancel()
     if watcher_task:
         watcher_task.cancel()
     if nats_conn:

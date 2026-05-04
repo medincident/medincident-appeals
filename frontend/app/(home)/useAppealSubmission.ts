@@ -56,17 +56,17 @@ export function useAppealSubmission() {
   }
   const isMobile = () =>
     typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches
-  const focusInput = () => {
+  const focusInput = React.useCallback(() => {
     if (isMobile()) return
     scheduleTimer(() => textareaRef.current?.focus(), FOCUS_DELAY)
-  }
+  }, [])
 
   React.useEffect(() => clearTimers, [])
 
   const reset = React.useCallback(() => {
     setSubmission({ kind: "idle" })
     focusInput()
-  }, [])
+  }, [focusInput])
 
   const enqueueAndNotify = async (trimmed: string, savedOfflineMsg: string) => {
     await enqueueAppeal(trimmed)

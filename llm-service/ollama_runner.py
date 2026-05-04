@@ -99,7 +99,7 @@ class OllamaRunner:
         )
         try:
             await asyncio.wait_for(proc.wait(), timeout=self.pull_timeout)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             raise RuntimeError(f"`ollama pull {self.model}` exceeded {self.pull_timeout}s") from None
         if proc.returncode != 0:

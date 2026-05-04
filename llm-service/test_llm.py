@@ -128,7 +128,6 @@ def compare(expected: dict, actual: dict) -> dict[str, bool]:
         act_sub = (actual.get("subcategory") or {}).get("id")
         results["subcategory_id"] = exp_sub == act_sub
 
-        exp_theses = set(expected.get("theses") or [])
         act_theses = set(actual.get("theses") or [])
         results["theses_nonempty"] = len(act_theses) > 0
         results["formalized_nonempty"] = bool(actual.get("formalized_text"))
@@ -178,7 +177,8 @@ def run_example(url: str, model: str, example: dict, idx: int, total: int) -> bo
     all_ok = valid_json and all(checks.values())
 
     print("CHECKS:")
-    icon = lambda ok: "✅" if ok else "❌"
+    def icon(ok: bool) -> str:
+        return "✅" if ok else "❌"
     print(f"  {icon(valid_json)} valid JSON")
     for k, v in checks.items():
         print(f"  {icon(v)} {k}")

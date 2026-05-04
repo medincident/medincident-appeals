@@ -10,7 +10,7 @@ export type ResultError = {
   type: ResultErrorType;
   message: string;
   code?: string | number;
-  details?: any;
+  details?: unknown;
 };
 
 export type Result<T> =

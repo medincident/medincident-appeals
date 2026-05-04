@@ -20,7 +20,7 @@
  *  - error     — последняя попытка упала; через 1.5s вернёмся в idle, можно ретраить
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 export type RecorderStatus = "idle" | "loading" | "recording" | "error"
 
@@ -112,13 +112,13 @@ export function useVoiceRecorder({
   const [status, setStatus] = useState<RecorderStatus>("idle")
   const [interimText, setInterimText] = useState("")
   const [error, setError] = useState<VoiceRecorderError | null>(null)
-  const [supported, setSupported] = useState(false)
+  const supported = useSyncExternalStore(
+    () => () => {},
+    () => getSpeechRecognitionCtor() !== null,
+    () => false,
+  )
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null)
-
-  useEffect(() => {
-    setSupported(getSpeechRecognitionCtor() !== null)
-  }, [])
 
   const fail = useCallback(
     (code: VoiceRecorderError, message: string) => {

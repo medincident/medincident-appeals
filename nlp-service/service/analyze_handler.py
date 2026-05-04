@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 from typing import Any
@@ -68,10 +69,8 @@ async def subscribe_analyze(
             await msg.respond(b"", headers={ERROR_HEADER: "invalid json"})
         except Exception:
             logger.exception("nlp.analyze handler crashed")
-            try:
+            with contextlib.suppress(Exception):
                 await msg.respond(b"", headers={ERROR_HEADER: "internal error"})
-            except Exception:
-                pass
 
     sub = await nc.subscribe(ANALYZE_SUBJECT, queue=QUEUE_GROUP, cb=handle)
     logger.info("Subscribed to %s (queue=%s)", ANALYZE_SUBJECT, QUEUE_GROUP)

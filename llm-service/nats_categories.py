@@ -44,7 +44,7 @@ async def load_categories_once(
     js,
     bucket: str,
     key: str,
-    on_update: Callable[[list[dict]], "asyncio.Future | None"],
+    on_update: Callable[[list[dict]], asyncio.Future | None],
 ) -> bool:
     try:
         kv = await js.key_value(bucket)
@@ -61,7 +61,7 @@ async def watch_categories(
     js,
     bucket: str,
     key: str,
-    on_update: Callable[[list[dict]], "asyncio.Future | None"],
+    on_update: Callable[[list[dict]], asyncio.Future | None],
 ) -> None:
     while True:
         try:

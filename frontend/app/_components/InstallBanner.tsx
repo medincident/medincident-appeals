@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { Download, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -119,7 +120,7 @@ export function InstallBanner() {
       className="fixed inset-x-3 bottom-3 z-50 mx-auto max-w-md rounded-xl border border-border bg-card/95 p-3 shadow-lg backdrop-blur sm:bottom-4"
     >
       <div className="flex items-start gap-3">
-        <img
+        <Image
           src="/icons/shield.svg"
           alt=""
           width={36}
