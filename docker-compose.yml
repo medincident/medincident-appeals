@@ -1,4 +1,3 @@
-# Общие настройки логирования для всех сервисов.
 x-logging: &default-logging
   driver: "json-file"
   options:
