@@ -26,6 +26,9 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
   frontend-dev:
@@ -73,6 +76,9 @@ services:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
     networks:
       - ai-medincident
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
   # ── Categories mock — набор категорий в NATS KV ─────
@@ -113,6 +119,9 @@ services:
       start_period: 120s   # для загрузки моделей (~368MB)
     networks:
       - ai-medincident
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
   # ── LLM Service (Ollama + Qwen2.5-3B) ──────────────────────
@@ -222,6 +231,29 @@ services:
       - grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
+    networks:
+      - ai-medincident
+    logging: *default-logging
+
+  watchtower:
+    profiles: [dev, prod]
+    image: containrrr/watchtower:latest
+    container_name: medincident-appeals-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      REPO_USER: ${GHCR_USERNAME}
+      REPO_PASS: ${GHCR_TOKEN}
+      DOCKER_API_VERSION: "1.40"
+      WATCHTOWER_SCOPE: "medincident-appeals"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+      WATCHTOWER_POLL_INTERVAL: ${WATCHTOWER_POLL_INTERVAL:-3600}
+      WATCHTOWER_NOTIFICATIONS: ${WATCHTOWER_NOTIFICATIONS:-}
+      WATCHTOWER_NOTIFICATION_URL: ${WATCHTOWER_NOTIFICATION_URL:-}
+      TZ: ${TZ:-Europe/Moscow}
     networks:
       - ai-medincident
     logging: *default-logging
