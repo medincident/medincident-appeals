@@ -81,7 +81,7 @@ services:
       - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
-  # ── Categories mock — набор категорий в NATS KV ─────
+  # ── Categories mock — Mock с эндпоинтом получения категорий ─────
   categories-service-mock:
     profiles: [dev]
     build:
@@ -90,10 +90,10 @@ services:
     container_name: ai-medincident-categories-mock
     restart: unless-stopped
     environment:
-      NATS_URL: ${NATS_URL}
-    depends_on:
-      nats:
-        condition: service_healthy
+      ORGANIZATION_ID: ${ORGANIZATION_ID:-00000000-0000-0000-0000-000000000001}
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://localhost:8000/health', timeout=2).status==200 else sys.exit(1)\""]
     networks:
       - ai-medincident
     logging: *default-logging
@@ -107,6 +107,10 @@ services:
     restart: unless-stopped
     environment:
       NATS_URL: ${NATS_URL}
+      # URL под proto query.incident.classifier.v1 (medincident-backend):
+      #   GET /v1/organizations/{organization_id}/incident-categories:patient-visible
+      CATEGORIES_URL: ${CATEGORIES_URL:-http://categories-service-mock:8000/v1/organizations/${ORGANIZATION_ID:-00000000-0000-0000-0000-000000000001}/incident-categories:patient-visible}
+      CATEGORIES_POLL_INTERVAL: ${CATEGORIES_POLL_INTERVAL:-60}
     volumes:
       - nlp_models:/app/models_cache
       - ./nlp-service/trained_models:/app/trained_models

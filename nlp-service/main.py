@@ -16,21 +16,29 @@ from service import (
     classifier_predictions_total,
     connect_with_retry,
     instrument_app,
-    load_categories,
+    load_categories_with_retry,
     pipeline_duration_seconds,
     pipeline_requests_total,
+    poll_categories,
     run_pipeline,
     setup_logging,
     subscribe_analyze,
-    watch_categories,
 )
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
-KV_BUCKET = "medincident"
-KV_KEY = "categories"
+# URL под proto query.incident.classifier.v1 (см. medincident-backend):
+#   GET /v1/organizations/{organization_id}/incident-categories:patient-visible
+# Mock-сервис игнорирует значение organization_id и отдаёт фиксированный набор.
+_DEFAULT_ORG_ID = "00000000-0000-0000-0000-000000000001"
+CATEGORIES_URL = os.getenv(
+    "CATEGORIES_URL",
+    f"http://categories-service-mock:8000/v1/organizations/{_DEFAULT_ORG_ID}"
+    f"/incident-categories:patient-visible",
+)
+CATEGORIES_POLL_INTERVAL = float(os.getenv("CATEGORIES_POLL_INTERVAL", "60"))
 
 classifier = ImportanceClassifier()
 processor = TextProcessor()
@@ -54,23 +62,29 @@ async def lifespan(app: FastAPI):
     logger.info("All models loaded")
 
     nc = None
-    watcher_task = None
+    poll_task = None
     analyze_sub = None
-    try:
-        nc = await connect_with_retry(NATS_URL)
-        js = nc.jetstream()
 
-        for _ in range(20):
-            if await load_categories(js, KV_BUCKET, KV_KEY, _apply_categories):
-                break
-            await asyncio.sleep(3.0)
-        else:
-            logger.error("Failed to load categories from NATS — matcher will return null")
-
-        watcher_task = asyncio.create_task(
-            watch_categories(js, KV_BUCKET, KV_KEY, _apply_categories)
+    initial_fingerprint = await load_categories_with_retry(
+        CATEGORIES_URL, _apply_categories
+    )
+    if initial_fingerprint is None:
+        logger.error(
+            "Failed to load categories from %s — matcher will return null until poller succeeds",
+            CATEGORIES_URL,
         )
 
+    poll_task = asyncio.create_task(
+        poll_categories(
+            CATEGORIES_URL,
+            _apply_categories,
+            interval=CATEGORIES_POLL_INTERVAL,
+            initial_fingerprint=initial_fingerprint,
+        )
+    )
+
+    try:
+        nc = await connect_with_retry(NATS_URL)
         analyze_sub = await subscribe_analyze(
             nc,
             classifier,
@@ -82,14 +96,14 @@ async def lifespan(app: FastAPI):
             classifier_predictions_total,
         )
     except Exception as exc:
-        logger.error("NATS unavailable: %s — service starts without categories", exc)
+        logger.error("NATS unavailable: %s — /analyze over NATS will be disabled", exc)
 
     yield
 
     if analyze_sub:
         await analyze_sub.unsubscribe()
-    if watcher_task:
-        watcher_task.cancel()
+    if poll_task:
+        poll_task.cancel()
     if nc:
         await nc.drain()
 
