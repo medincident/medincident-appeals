@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend, llm-service, nlp-service]
+        service: [backend, frontend, nlp-service] # , llm-service
         include:
           - service: backend
             context: ./backend
@@ -43,9 +43,9 @@ jobs:
           - service: frontend
             context: ./frontend
             file: ./frontend/Dockerfile.prod
-          - service: llm-service
-            context: ./llm-service
-            file: ./llm-service/Dockerfile
+          # - service: llm-service
+          #   context: ./llm-service
+          #   file: ./llm-service/Dockerfile
           - service: nlp-service
             context: ./nlp-service
             file: ./nlp-service/Dockerfile
