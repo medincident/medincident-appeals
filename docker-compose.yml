@@ -101,6 +101,7 @@ services:
   # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ──────────────────────────────
   # поддерживает скейлинг `docker compose up --scale nlp-service=N`.
   nlp-service:
+    profiles: [dev, prod]
     build:
       context: ./nlp-service
       dockerfile: Dockerfile
