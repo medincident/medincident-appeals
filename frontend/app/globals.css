@@ -258,6 +258,34 @@
     @apply bg-background text-foreground antialiased;
   }
 
+  :root {
+    --webapp-safe-top: env(safe-area-inset-top, 0px);
+    --webapp-safe-right: env(safe-area-inset-right, 0px);
+    --webapp-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --webapp-safe-left: env(safe-area-inset-left, 0px);
+  }
+
+  html[data-webapp] body {
+    min-height: 100dvh;
+  }
+
+  html[data-webapp="telegram"],
+  html[data-webapp="vk"],
+  html[data-webapp="max"] {
+    --primary: var(--webapp-button, var(--primary));
+    --primary-foreground: var(--webapp-button-text, var(--primary-foreground));
+    --ring: var(--webapp-button, var(--ring));
+  }
+
+  html[data-webapp="telegram"] {
+    --background: var(--webapp-bg, var(--background));
+    --foreground: var(--webapp-text, var(--foreground));
+    --card: var(--webapp-secondary-bg, var(--webapp-section-bg, var(--card)));
+    --popover: var(--webapp-secondary-bg, var(--popover));
+    --muted-foreground: var(--webapp-hint, var(--muted-foreground));
+    --destructive: var(--webapp-destructive-text, var(--destructive));
+  }
+
   html[data-animations="false"],
   html[data-animations="false"] *,
   html[data-animations="false"] *::before,
@@ -307,6 +335,25 @@
 
 @utility page-container {
   @apply mx-auto w-full max-w-xl px-4;
+}
+
+/* Безопасный отступ под WebApp/PWA. В обычном браузере оба значения = 0,
+ * под Telegram/VK/MAX берётся из --webapp-safe-* (см. WebAppProvider). */
+@utility safe-pt {
+  padding-top: var(--webapp-safe-top);
+}
+@utility safe-pb {
+  padding-bottom: var(--webapp-safe-bottom);
+}
+@utility safe-px {
+  padding-left: var(--webapp-safe-left);
+  padding-right: var(--webapp-safe-right);
+}
+@utility safe-area {
+  padding-top: var(--webapp-safe-top);
+  padding-right: var(--webapp-safe-right);
+  padding-bottom: var(--webapp-safe-bottom);
+  padding-left: var(--webapp-safe-left);
 }
 
 @utility scroll-edge-fade-x {

@@ -24,7 +24,13 @@ function AppealsPageInner() {
 
   return (
     <div className="page-bg">
-      <div className="page-container py-6 flex flex-col gap-5">
+      <div
+        className="page-container py-6 flex flex-col gap-5"
+        style={{
+          paddingTop: "calc(1.5rem + var(--webapp-safe-top))",
+          paddingBottom: "calc(1.5rem + var(--webapp-safe-bottom))",
+        }}
+      >
 
         <Link
           href="/"

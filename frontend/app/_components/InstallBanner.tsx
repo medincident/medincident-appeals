@@ -5,6 +5,7 @@ import Image from "next/image"
 import { Download, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { useWebApp } from "@/lib/webapp/context"
 
 const DISMISSED_KEY = "aimi:install-banner-dismissed"
 const INSTALLED_KEY = "aimi:pwa-installed"
@@ -38,9 +39,11 @@ export function InstallBanner() {
   const [visible, setVisible] = React.useState(false)
   const [deferred, setDeferred] = React.useState<BeforeInstallPromptEvent | null>(null)
   const [iosHint, setIosHint] = React.useState(false)
+  const { platform } = useWebApp()
 
   React.useEffect(() => {
     if (typeof window === "undefined") return
+    if (platform) return
 
     if (isStandalone()) {
       try {
@@ -82,7 +85,7 @@ export function InstallBanner() {
       window.removeEventListener("beforeinstallprompt", onBeforeInstall)
       window.removeEventListener("appinstalled", onInstalled)
     }
-  }, [])
+  }, [platform])
 
   function handleDismiss() {
     try {

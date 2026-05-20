@@ -3,13 +3,16 @@
 import * as React from "react"
 
 import { safeError } from "@/lib/log"
+import { useWebApp } from "@/lib/webapp/context"
 
 export function ServiceWorkerRegistrar() {
+  const { platform } = useWebApp()
+
   React.useEffect(() => {
     if (typeof window === "undefined") return
     if (!("serviceWorker" in navigator)) return
-    // В dev Next.js отдаёт HMR-ассеты, SW будет мешать — регистрируем только в продовой сборке.
     if (process.env.NODE_ENV !== "production") return
+    if (platform) return
 
     const onLoad = () => {
       navigator.serviceWorker
@@ -25,7 +28,7 @@ export function ServiceWorkerRegistrar() {
       window.addEventListener("load", onLoad, { once: true })
       return () => window.removeEventListener("load", onLoad)
     }
-  }, [])
+  }, [platform])
 
   return null
 }

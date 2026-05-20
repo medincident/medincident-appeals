@@ -30,7 +30,13 @@ export default function ProfilePage() {
 
   return (
     <div className="page-bg">
-      <div className="page-container py-6 flex flex-col gap-6">
+      <div
+        className="page-container py-6 flex flex-col gap-6"
+        style={{
+          paddingTop: "calc(1.5rem + var(--webapp-safe-top))",
+          paddingBottom: "calc(1.5rem + var(--webapp-safe-bottom))",
+        }}
+      >
         <Link
           href="/"
           className="flex items-center gap-2 -ml-2 w-fit rounded-md px-2 py-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"

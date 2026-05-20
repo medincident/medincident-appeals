@@ -1,12 +1,8 @@
-// Стратегия:
-//   - статические ассеты (/icons, manifest, /_next/static): cache-first
-//   - навигация: network-only с fallback на /offline (HTML с ПДн не кэшируем)
-//   - /api/*: не трогаем
-// При logout клиент шлёт `{ type: "clear-shell" }` — сбрасываем shell-cache.
 
-const CACHE_VERSION = "aimi-v4";
+const CACHE_VERSION = "aimi-v5";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSETS_CACHE = `${CACHE_VERSION}-assets`;
+const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 const OFFLINE_URL = "/offline";
 
 const SHELL_ASSETS = [
@@ -14,6 +10,7 @@ const SHELL_ASSETS = [
   "/manifest.webmanifest",
   "/icons/shield.svg",
   "/icons/shield-maskable.svg",
+  "/icons/shield-monochrome.svg",
 ];
 
 self.addEventListener("install", (event) => {
@@ -51,7 +48,10 @@ self.addEventListener("message", (event) => {
   }
   if (data.type === "clear-shell") {
     event.waitUntil(
-      caches.delete(SHELL_CACHE).then(() =>
+      Promise.all([
+        caches.delete(SHELL_CACHE),
+        caches.delete(RUNTIME_CACHE),
+      ]).then(() =>
         caches.open(SHELL_CACHE).then((cache) =>
           Promise.all(
             SHELL_ASSETS.map((url) =>
@@ -65,47 +65,64 @@ self.addEventListener("message", (event) => {
 });
 
 function isNavigationRequest(request) {
-  return request.mode === "navigate" || (request.method === "GET" && request.headers.get("accept")?.includes("text/html"));
+  return (
+    request.mode === "navigate" ||
+    (request.method === "GET" && request.headers.get("accept")?.includes("text/html"))
+  );
 }
 
-function isStaticAsset(url) {
+function isImmutableAsset(url) {
   return (
+    url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/icons/") ||
-    url.pathname === "/manifest.webmanifest" ||
-    url.pathname.startsWith("/_next/static/")
+    url.pathname === "/manifest.webmanifest"
   );
+}
+
+function isRuntimeAsset(url, request) {
+  if (request.destination === "image" || request.destination === "font") return true;
+  if (url.pathname.startsWith("/_next/image")) return true;
+  return false;
+}
+
+async function cacheFirst(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const res = await fetch(request);
+  if (res.ok) cache.put(request, res.clone());
+  return res;
+}
+
+async function staleWhileRevalidate(request, cacheName) {
+  const cache = await caches.open(cacheName);
+  const cached = await cache.match(request);
+  const network = fetch(request)
+    .then((res) => {
+      if (res.ok) cache.put(request, res.clone());
+      return res;
+    })
+    .catch(() => cached);
+  return cached || network;
 }
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
-
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (
-    url.pathname.startsWith("/api/auth") ||
-    url.pathname.startsWith("/api/")
-  ) {
+  // API не трогаем — токены и ПДн не должны попадать в кэш.
+  if (url.pathname.startsWith("/api/")) return;
+
+  if (isImmutableAsset(url)) {
+    event.respondWith(cacheFirst(request, ASSETS_CACHE));
     return;
   }
 
-  if (isStaticAsset(url)) {
-    event.respondWith(
-      caches.open(ASSETS_CACHE).then(async (cache) => {
-        const cached = await cache.match(request);
-        if (cached) return cached;
-        try {
-          const res = await fetch(request);
-          if (res.ok) cache.put(request, res.clone());
-          return res;
-        } catch (err) {
-          if (cached) return cached;
-          throw err;
-        }
-      })
-    );
+  if (isRuntimeAsset(url, request)) {
+    event.respondWith(staleWhileRevalidate(request, RUNTIME_CACHE));
     return;
   }
 
@@ -113,7 +130,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       (async () => {
         try {
-          return await fetch(request);
+          const res = await fetch(request);
+          return res;
         } catch (err) {
           const cache = await caches.open(SHELL_CACHE);
           const fallback = await cache.match(OFFLINE_URL);

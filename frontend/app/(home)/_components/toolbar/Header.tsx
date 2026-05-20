@@ -16,7 +16,10 @@ export function Header() {
   const initials = `${firstName?.[0] ?? ""}${lastName?.[0] ?? ""}`.toUpperCase()
 
   return (
-    <header className="w-full px-4 pt-4">
+    <header
+      className="w-full px-4 pt-4"
+      style={{ paddingTop: "calc(1rem + var(--webapp-safe-top))" }}
+    >
       <div className="mx-auto w-full max-w-xl flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <Shield fill="currentColor" className="h-7 w-7 text-primary shrink-0" />

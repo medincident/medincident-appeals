@@ -8,6 +8,7 @@ import { SWRConfig } from "swr";
 import { Toaster } from "@/components/ui/sonner";
 import { localStorageProvider } from "@/lib/swrCacheProvider";
 import { clearOfflineData } from "@/lib/offline/cleanup";
+import { WebAppProvider } from "@/lib/webapp/context";
 import { localLogoutAction } from "@/services/auth/actions";
 import { SessionErrorCode } from "@/services/auth/errors";
 import { SessionExpiredDialog } from "./_components/SessionExpiredDialog";
@@ -17,8 +18,6 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
   const { data, status } = useSession();
   const loggingOutRef = React.useRef(false);
 
-  // Refresh умер, но пользователя не выкидываем — пусть сохранит несохранённое
-  // через SessionExpiredDialog → re-login.
   const refreshFailed = data?.error === SessionErrorCode.RefreshAccessTokenError;
 
   React.useEffect(() => {
@@ -46,7 +45,6 @@ function SessionGuard({ children }: { children: React.ReactNode }) {
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <SessionProvider
-      // Синхронизировано с AUTH_REFRESH_CAP_SEC из shared/config/env.ts.
       refetchInterval={60}
       refetchOnWindowFocus
     >
@@ -56,14 +54,16 @@ export function Providers({ children }: { children: React.ReactNode }) {
         enableSystem
         disableTransitionOnChange
       >
-        <SessionGuard>
-          <SWRConfig value={{ provider: localStorageProvider }}>
-            <SettingsProvider>
-              {children}
-              <Toaster position="top-center" offset={72} mobileOffset={64} />
-            </SettingsProvider>
-          </SWRConfig>
-        </SessionGuard>
+        <WebAppProvider>
+          <SessionGuard>
+            <SWRConfig value={{ provider: localStorageProvider }}>
+              <SettingsProvider>
+                {children}
+                <Toaster position="top-center" offset={72} mobileOffset={64} />
+              </SettingsProvider>
+            </SWRConfig>
+          </SessionGuard>
+        </WebAppProvider>
       </ThemeProvider>
     </SessionProvider>
   );

@@ -4,6 +4,7 @@ import { Providers } from "./providers";
 import { InstallBanner } from "./_components/InstallBanner";
 import { NetworkStatus } from "./_components/NetworkStatus";
 import { ServiceWorkerRegistrar } from "./_components/ServiceWorkerRegistrar";
+import { WebAppBootstrap } from "./_components/WebAppBootstrap";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -57,6 +58,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background">
+        <WebAppBootstrap />
         <Providers>
           {children}
           <InstallBanner />

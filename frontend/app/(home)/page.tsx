@@ -23,7 +23,10 @@ export default function MainPage() {
     <div className="h-[100dvh] flex flex-col overflow-hidden bg-background">
       <Header />
 
-      <main className="flex-1 min-h-0 flex flex-col w-full max-w-xl mx-auto px-4 pt-4 pb-6 sm:pb-4">
+      <main
+        className="flex-1 min-h-0 flex flex-col w-full max-w-xl mx-auto px-4 pt-4 pb-6 sm:pb-4"
+        style={{ paddingBottom: "calc(1.5rem + var(--webapp-safe-bottom))" }}
+      >
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center sm:justify-end text-center">
           <div className="space-y-2 max-w-sm sm:mb-4">
             <h2 className="text-xl sm:text-2xl font-semibold text-foreground">

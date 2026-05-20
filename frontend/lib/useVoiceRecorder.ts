@@ -1,24 +1,5 @@
 "use client"
 
-/**
- * Вайб распознователь, на свой SST нет мощностей
- * 
- * useVoiceRecorder — hook на Web Speech API (SpeechRecognition).
- *
- * Распознавание идёт прямо в браузере пользователя:
- *  - Chrome / Edge (Chromium): webkitSpeechRecognition (Google STT cloud)
- *  - Safari (macOS 14.5+/iOS 14.5+): встроенный Apple STT
- *  - Firefox: API нет — supported = false
- *
- * Требования: secure context (HTTPS или localhost).
- *
- * Состояния:
- *  - idle      — ничего не происходит
- *  - loading   — пользователь нажал «Записать», ждём прогрев STT-движка
- *                (от рукопожатия с бэкендом до onstart). Кнопка должна быть disabled.
- *  - recording — поток открыт, говорим
- *  - error     — последняя попытка упала; через 1.5s вернёмся в idle, можно ретраить
- */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
@@ -26,6 +7,7 @@ export type RecorderStatus = "idle" | "loading" | "recording" | "error"
 
 export type VoiceRecorderError =
   | "unsupported"
+  | "insecure_context"
   | "permission_denied"
   | "no_device"
   | "no_speech"
@@ -81,12 +63,13 @@ interface Result {
   interimText: string
   error: VoiceRecorderError | null
   supported: boolean
-  start: () => void
+  start: () => Promise<void>
   stop: () => void
 }
 
 const ERROR_MESSAGES: Record<VoiceRecorderError, string> = {
   unsupported:       "Браузер не поддерживает распознавание речи",
+  insecure_context:  "Доступ к микрофону требует HTTPS",
   permission_denied: "Доступ к микрофону отклонён",
   no_device:         "Микрофон не найден",
   no_speech:         "Речь не распознана — попробуйте ещё раз",
@@ -130,16 +113,92 @@ export function useVoiceRecorder({
     [onError],
   )
 
-  const start = useCallback(() => {
-    if (recogRef.current) return
+  const start = useCallback(async () => {
+    const log = (...args: unknown[]) => console.log("[voice]", ...args)
+
+    log("start() called", {
+      isSecureContext: typeof window !== "undefined" ? window.isSecureContext : "n/a",
+      hasMediaDevices: typeof navigator !== "undefined" && !!navigator.mediaDevices,
+      hasGetUserMedia:
+        typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia,
+      hasPermissionsAPI:
+        typeof navigator !== "undefined" && !!(navigator.permissions as unknown),
+      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
+      hasSpeechRecognition:
+        typeof window !== "undefined" &&
+        !!(window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition,
+      hasWebkitSpeechRecognition:
+        typeof window !== "undefined" &&
+        !!(window as unknown as { webkitSpeechRecognition?: unknown })
+          .webkitSpeechRecognition,
+    })
+
+    if (recogRef.current) {
+      log("already running, abort")
+      return
+    }
+
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      log("insecure context — getUserMedia blocked by browser")
+      fail("insecure_context", ERROR_MESSAGES.insecure_context)
+      return
+    }
+
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) {
+      log("no SpeechRecognition ctor")
+      fail("unsupported", ERROR_MESSAGES.unsupported)
+      return
+    }
+
     setError(null)
     setInterimText("")
     setStatus("loading")
 
-    const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor) {
-      fail("unsupported", ERROR_MESSAGES.unsupported)
-      return
+    // КЛЮЧЕВОЙ МОМЕНТ: getUserMedia должен быть вызван СИНХРОННО в обработчике
+    // клика, до любых await — иначе iOS Safari теряет связку с user gesture и
+    // молча отклоняет доступ без показа prompt'а. То же помогает на Android
+    // Chrome, где prompt от webkitSpeechRecognition появляется не всегда.
+    // Поэтому permissions.query (опциональная оптимизация) теперь идёт ПОСЛЕ
+    // getUserMedia, а не до.
+    let gumPromise: Promise<MediaStream> | null = null
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        log("calling getUserMedia({audio:true}) synchronously…")
+        gumPromise = navigator.mediaDevices.getUserMedia({ audio: true })
+      } catch (err) {
+        // Синхронный throw (редко, но бывает в некоторых WebView)
+        log("getUserMedia threw synchronously:", {
+          name: (err as Error)?.name,
+          message: (err as Error)?.message,
+        })
+        fail("permission_denied", ERROR_MESSAGES.permission_denied)
+        return
+      }
+    } else {
+      log("no getUserMedia available; will rely on SpeechRecognition prompt")
+    }
+
+    if (gumPromise) {
+      try {
+        const stream = await gumPromise
+        log("getUserMedia OK, tracks:", stream.getTracks().length)
+        stream.getTracks().forEach((t) => t.stop())
+      } catch (err) {
+        const name = (err as DOMException)?.name
+        const message = (err as DOMException)?.message
+        log("getUserMedia rejected:", { name, message })
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          fail("permission_denied", ERROR_MESSAGES.permission_denied)
+          return
+        }
+        if (name === "NotFoundError" || name === "OverconstrainedError") {
+          fail("no_device", ERROR_MESSAGES.no_device)
+          return
+        }
+        fail("unknown", message || ERROR_MESSAGES.unknown)
+        return
+      }
     }
 
     const rec = new Ctor()
@@ -148,7 +207,10 @@ export function useVoiceRecorder({
     rec.interimResults = true
     rec.maxAlternatives = 1
 
-    rec.onstart = () => setStatus("recording")
+    rec.onstart = () => {
+      log("SR.onstart")
+      setStatus("recording")
+    }
 
     rec.onresult = (e) => {
       let interim = ""
@@ -166,6 +228,7 @@ export function useVoiceRecorder({
     }
 
     rec.onerror = (e) => {
+      log("SR.onerror:", { error: e.error, message: e.message })
       const code = ERROR_CODE_MAP[e.error] ?? "unknown"
       // Тихий abort (user stopped) — не считаем ошибкой
       if (code === "aborted") return
@@ -173,6 +236,7 @@ export function useVoiceRecorder({
     }
 
     rec.onend = () => {
+      log("SR.onend")
       recogRef.current = null
       setInterimText("")
       setStatus((prev) => (prev === "error" ? prev : "idle"))
@@ -180,8 +244,14 @@ export function useVoiceRecorder({
 
     recogRef.current = rec
     try {
+      log("calling SR.start()")
       rec.start()
+      log("SR.start() returned without throw")
     } catch (err) {
+      log("SR.start() threw:", {
+        name: (err as Error)?.name,
+        message: (err as Error)?.message,
+      })
       recogRef.current = null
       fail("unknown", (err as Error).message || "Не удалось запустить запись")
     }

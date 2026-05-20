@@ -1,6 +1,8 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
 
+const WebAppForceSchema = z.enum(["off", "telegram", "vk", "max"]).default("off");
+
 const envConfig = createEnv({
   server: {
     AUTH_APP_URL: z.url().default("http://localhost:8080"),
@@ -15,6 +17,10 @@ const envConfig = createEnv({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   },
 
+  client: {
+    NEXT_PUBLIC_WEBAPP_FORCE: WebAppForceSchema,
+  },
+
   runtimeEnv: {
     AUTH_APP_URL: process.env.AUTH_APP_URL,
     AUTH_ORG_ID: process.env.AUTH_ORG_ID,
@@ -24,6 +30,7 @@ const envConfig = createEnv({
     AUTH_REFRESH_CAP_SEC: process.env.AUTH_REFRESH_CAP_SEC,
 
     NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_WEBAPP_FORCE: process.env.NEXT_PUBLIC_WEBAPP_FORCE,
   },
 });
 
