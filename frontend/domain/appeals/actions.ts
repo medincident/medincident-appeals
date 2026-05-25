@@ -28,12 +28,9 @@ interface BackendAppealRow {
   id: string
   user_id: string
   text: string
-  summary: string
   formalized_text: string
   is_important: boolean
   important_confidence?: number
-  reason: string
-  theses: string[]
   category_id?: string
   category_name?: string
   subcategory_id?: string
@@ -46,9 +43,8 @@ function rowToAppeal(r: BackendAppealRow): Appeal {
   return {
     id: r.id,
     text: r.text,
-    summary: r.summary || r.text.slice(0, 50),
+    summary: r.text.slice(0, 50),
     formalizedText: r.formalized_text || r.text,
-    theses: r.theses ?? [],
     category: r.category_id && r.category_name
       ? { id: r.category_id, name: r.category_name }
       : null,
@@ -136,7 +132,6 @@ export async function createAppealAction(
     text: trimmed,
     summary: makeSummary(trimmed),
     formalizedText: trimmed,
-    theses: [],
     category: null,
     subcategory: null,
     isImportant: true,

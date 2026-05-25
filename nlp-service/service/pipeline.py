@@ -49,7 +49,6 @@ def run_pipeline(
             "important_confidence": confidence,
             "reason": build_reason(True, None, None, confident=False),
             "formalized_text": text,
-            "theses": [],
             "category": None,
             "subcategory": None,
         }
@@ -60,13 +59,11 @@ def run_pipeline(
             "important_confidence": confidence,
             "reason": build_reason(False, None, None),
             "formalized_text": text,
-            "theses": [],
             "category": None,
             "subcategory": None,
         }
 
     formalized = processor.formalize(text)
-    theses = processor.extract_theses(text, formalized)
 
     if override_categories:
         matcher.update_categories(override_categories)
@@ -78,7 +75,6 @@ def run_pipeline(
         "important_confidence": confidence,
         "reason": build_reason(True, subcategory, category),
         "formalized_text": formalized,
-        "theses": theses,
         "category": category,
         "subcategory": subcategory,
     }

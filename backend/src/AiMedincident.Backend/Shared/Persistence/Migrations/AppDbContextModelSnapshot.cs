@@ -62,13 +62,6 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                         .HasDefaultValue(true)
                         .HasColumnName("is_important");
 
-                    b.Property<string>("Reason")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("")
-                        .HasColumnName("reason");
-
                     b.Property<AppealStatus>("Status")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("appeal_status")
@@ -83,24 +76,10 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                         .HasColumnType("text")
                         .HasColumnName("subcategory_name");
 
-                    b.Property<string>("Summary")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("text")
-                        .HasDefaultValue("")
-                        .HasColumnName("summary");
-
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("text");
-
-                    b.PrimitiveCollection<string>("Theses")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("jsonb")
-                        .HasColumnName("theses")
-                        .HasDefaultValueSql("'[]'::jsonb");
 
                     b.Property<string>("UserId")
                         .IsRequired()

@@ -6,7 +6,7 @@
   * Сэмплирование — per-subcategory (а не per-template), так выравнивается дисбаланс — fix #2.
   * Флаги аугментации — независимые случайные события, а не по модулю — fix #1.
   * Для important на каждую вариацию выбирается случайный парафраз из списка — fix #3.
-  * not_important ВСЕГДА имеет formalized=None, theses=None — fix #4.
+  * not_important ВСЕГДА имеет formalized=None — fix #4.
   * Таргет достигается циклом with-seen-set, не хрупким for/else/break — fix #13.
   * Split добавляется в каждый пример через splitter.assign_split — fix #12.
   * ~5% ambiguous кейсов — fix #10 (поле в Example, используется для доп. анализа).
@@ -98,22 +98,14 @@ def _build_example(
 
     # для important — выбираем случайный парафраз (fix #3)
     if tmpl.is_important():
-        assert tmpl.formalized is not None and tmpl.theses is not None
+        assert tmpl.formalized is not None
         idx = rng.randrange(len(tmpl.formalized))
         formalized = tmpl.formalized[idx]
-        theses = list(tmpl.theses[idx])
-
-        # если multi-complaint — добавляем тезис второго шаблона
-        if second_tmpl is not None and second_tmpl.is_important():
-            assert second_tmpl.theses is not None
-            idx2 = rng.randrange(len(second_tmpl.theses))
-            theses = theses + list(second_tmpl.theses[idx2])
-            # формализованный текст — только первый (так модель учится
-            # извлекать доминирующую проблему при смешанных обращениях)
+        # multi-complaint: формализованный текст — только первый (так модель учится
+        # извлекать доминирующую проблему при смешанных обращениях)
     else:
         # fix #4: для not_important никаких формализаций
         formalized = None
-        theses = None
 
     return Example(
         user_text=noisy,
@@ -122,7 +114,6 @@ def _build_example(
         is_important=tmpl.is_important(),
         reason=tmpl.reason,
         formalized=formalized,
-        theses=theses,
         cat_id=tmpl.cat_id,
         cat_name=tmpl.cat_name,
         sub_id=tmpl.sub_id,

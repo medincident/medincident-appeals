@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test: прогон через реальный pipeline (с confidence-gate и валидацией тезисов)"""
+"""Smoke-test: прогон через реальный pipeline (с confidence-gate)"""
 
 import argparse
 import json
@@ -46,18 +46,12 @@ def run(text: str, clf, proc, matcher) -> None:
         return
 
     # При срабатывании confidence-gate pipeline возвращает пустые поля.
-    if not result["category"] and not result["theses"]:
+    if not result["category"]:
         print("  (низкая уверенность — seq2seq и категория пропущены)")
         print("=" * width)
         return
 
     print(f"  formalized   : {result['formalized_text']}")
-    if result["theses"]:
-        for i, t in enumerate(result["theses"], 1):
-            label = "  theses      :" if i == 1 else "               "
-            print(f"{label} {t}")
-    else:
-        print("  theses      : —  (все тезисы отфильтрованы валидатором)")
     print(f"  category     : {result['category']['name'] if result['category'] else '—'}")
     print(f"  subcategory  : {result['subcategory']['name'] if result['subcategory'] else '—'}")
     print("=" * width)

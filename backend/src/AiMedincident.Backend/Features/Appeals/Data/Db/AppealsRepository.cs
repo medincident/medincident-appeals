@@ -18,12 +18,9 @@ public sealed class AppealsRepository(AppDbContext db)
         }
         else
         {
-            existing.Summary = appeal.Summary;
             existing.FormalizedText = appeal.FormalizedText;
             existing.IsImportant = appeal.IsImportant;
             existing.ImportantConfidence = appeal.ImportantConfidence;
-            existing.Reason = appeal.Reason;
-            existing.Theses = appeal.Theses;
             existing.CategoryId = appeal.CategoryId;
             existing.CategoryName = appeal.CategoryName;
             existing.SubcategoryId = appeal.SubcategoryId;
@@ -44,7 +41,6 @@ public sealed class AppealsRepository(AppDbContext db)
             Id = id,
             UserId = userId,
             Text = text,
-            Summary = text,
             Status = AppealStatus.Pending,
             CreatedAt = createdAt == default ? DateTimeOffset.UtcNow : createdAt,
         });
@@ -72,8 +68,7 @@ public sealed class AppealsRepository(AppDbContext db)
             var pattern = $"%{EscapeEscapes(filter.Search)}%";
             query = query.Where(a =>
                 EF.Functions.ILike(a.Text, pattern, "\\") ||
-                EF.Functions.ILike(a.FormalizedText, pattern, "\\") ||
-                EF.Functions.ILike(a.Reason, pattern, "\\"));
+                EF.Functions.ILike(a.FormalizedText, pattern, "\\"));
         }
 
         if (!string.IsNullOrEmpty(filter.CategoryId))

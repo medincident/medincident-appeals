@@ -17,9 +17,7 @@ public class AppealRowBuilderTests
         {
             IsImportant = true,
             ImportantConfidence = 0.75,
-            Reason = "reason",
             FormalizedText = "Hello, World.",
-            Theses = new[] { "t1" },
             Category = new Dictionary<string, string> { ["id"] = "c1", ["name"] = "Cat" },
             Subcategory = new Dictionary<string, string> { ["id"] = "s1", ["name"] = "Sub" },
         };
@@ -32,8 +30,6 @@ public class AppealRowBuilderTests
         row.FormalizedText.Should().Be("Hello, World.");
         row.IsImportant.Should().BeTrue();
         row.ImportantConfidence.Should().BeApproximately(0.75f, 1e-4f);
-        row.Reason.Should().Be("reason");
-        row.Theses.Should().Equal("t1");
         row.CategoryId.Should().Be("c1");
         row.CategoryName.Should().Be("Cat");
         row.SubcategoryId.Should().Be("s1");
@@ -66,34 +62,6 @@ public class AppealRowBuilderTests
 
         row.CategoryId.Should().BeNull();
         row.CategoryName.Should().BeNull();
-    }
-
-    [Fact]
-    public void Build_defaults_theses_to_empty_list()
-    {
-        var submit = new AppealSubmit(ValidId, "text", "u", null);
-        var nlp = new NlpAnalyzeResponse { Theses = null };
-
-        var row = AppealRowBuilder.Build(submit, nlp);
-
-        row.Theses.Should().NotBeNull().And.BeEmpty();
-    }
-
-    [Fact]
-    public void MakeSummary_returns_input_when_within_limit()
-    {
-        var s = AppealRowBuilder.MakeSummary("hello   world", 50);
-
-        s.Should().Be("hello world");
-    }
-
-    [Fact]
-    public void MakeSummary_truncates_with_ellipsis()
-    {
-        var s = AppealRowBuilder.MakeSummary(new string('a', 120), 50);
-
-        s.Length.Should().Be(50);
-        s.EndsWith('…').Should().BeTrue();
     }
 
     [Fact]

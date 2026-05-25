@@ -16,9 +16,6 @@ public sealed record NlpAnalyzeResponse
     [JsonPropertyName("formalized_text")]
     public string? FormalizedText { get; init; }
 
-    [JsonPropertyName("theses")]
-    public IReadOnlyList<string>? Theses { get; init; }
-
     [JsonPropertyName("category")]
     public IReadOnlyDictionary<string, string>? Category { get; init; }
 

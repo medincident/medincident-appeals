@@ -65,8 +65,8 @@ public static class AppealsEndpoints
         http.Connection.RemoteIpAddress?.ToString();
 
     private static AppealDto ToDto(Appeal a) => new(
-        a.Id, a.UserId, a.Text, a.Summary, a.FormalizedText, a.IsImportant,
-        a.ImportantConfidence, a.Reason, a.Theses,
+        a.Id, a.UserId, a.Text, a.FormalizedText, a.IsImportant,
+        a.ImportantConfidence,
         a.CategoryId, a.CategoryName, a.SubcategoryId, a.SubcategoryName,
         a.Status, a.CreatedAt);
 }

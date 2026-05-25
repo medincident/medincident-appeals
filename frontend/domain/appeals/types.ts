@@ -15,7 +15,6 @@ export interface Appeal {
   text: string
   summary: string
   formalizedText: string
-  theses: string[]
   category: AppealCategory | null
   subcategory: AppealCategory | null
   isImportant: boolean
@@ -29,7 +28,6 @@ export interface NlpAnalyzeResult {
   important_confidence?: number
   reason?: string
   formalized_text?: string
-  theses?: string[]
   category?: AppealCategory | null
   subcategory?: AppealCategory | null
 }

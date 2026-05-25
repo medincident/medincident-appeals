@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fine-tune rut5-base-multitask на две задачи через prefix: 'формализуй:' и 'тезисы:'.
+"""Fine-tune rut5-base-multitask на формализацию: prefix 'формализуй:'.
 Используем только important-примеры — неважным нечего формализовать.
 Результат: trained_models/seq2seq/. CPU ~2ч, GPU ~15мин."""
 
@@ -26,17 +26,9 @@ def build_pairs(examples: list[Example]) -> tuple[list[str], list[str], list[str
             continue
 
         formalized = ex.answer.get("formalized_text", "").strip()
-        theses = ex.answer.get("theses") or []
-        theses_str = "\n".join(f"- {t}" for t in theses)
-
         if formalized:
             inputs.append(f"формализуй: {ex.text}")
             targets.append(formalized)
-            template_ids.append(ex.template_id)
-
-        if theses_str:
-            inputs.append(f"тезисы: {ex.text}")
-            targets.append(theses_str)
             template_ids.append(ex.template_id)
 
     logger.info(
@@ -259,12 +251,12 @@ def train(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune rut5 for formalization + theses")
+    parser = argparse.ArgumentParser(description="Fine-tune rut5 for formalization")
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--batch", type=int, default=32)
     parser.add_argument("--max-src", type=int, default=128)
-    parser.add_argument("--max-tgt", type=int, default=64)
+    parser.add_argument("--max-tgt", type=int, default=80)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None)

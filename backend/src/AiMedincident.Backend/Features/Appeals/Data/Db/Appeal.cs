@@ -8,12 +8,9 @@ public sealed class Appeal
     public Guid Id { get; set; }
     public string UserId { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
-    public string Summary { get; set; } = string.Empty;
     public string FormalizedText { get; set; } = string.Empty;
     public bool IsImportant { get; set; } = true;
     public float? ImportantConfidence { get; set; }
-    public string Reason { get; set; } = string.Empty;
-    public List<string> Theses { get; set; } = [];
     public string? CategoryId { get; set; }
     public string? CategoryName { get; set; }
     public string? SubcategoryId { get; set; }
@@ -33,10 +30,6 @@ internal sealed class AppealConfiguration : IEntityTypeConfiguration<Appeal>
         entity.Property(a => a.UserId).HasColumnName("user_id");
         entity.Property(a => a.Text).HasColumnName("text");
 
-        entity.Property(a => a.Summary)
-              .HasColumnName("summary")
-              .HasDefaultValue("");
-
         entity.Property(a => a.FormalizedText)
               .HasColumnName("formalized_text")
               .HasDefaultValue("");
@@ -47,15 +40,6 @@ internal sealed class AppealConfiguration : IEntityTypeConfiguration<Appeal>
 
         entity.Property(a => a.ImportantConfidence)
               .HasColumnName("important_confidence");
-
-        entity.Property(a => a.Reason)
-              .HasColumnName("reason")
-              .HasDefaultValue("");
-
-        entity.Property(a => a.Theses)
-              .HasColumnName("theses")
-              .HasColumnType("jsonb")
-              .HasDefaultValueSql("'[]'::jsonb");
 
         entity.Property(a => a.CategoryId).HasColumnName("category_id");
         entity.Property(a => a.CategoryName).HasColumnName("category_name");

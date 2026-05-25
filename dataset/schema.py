@@ -1,7 +1,7 @@
 """Типы и валидация.
 
 Fix #11 — валидация выходного JSON.
-Fix #3  — formalized_text и theses могут быть списком парафраз.
+Fix #3  — formalized может быть списком парафраз.
 Fix #4  — для not_important formalized=None (не тренируем seq2seq на identity).
 Fix #15 — версионирование.
 """
@@ -9,9 +9,9 @@ Fix #15 — версионирование.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-DATASET_VERSION = "v2"
+DATASET_VERSION = "v3"
 
 
 @dataclass(frozen=True)
@@ -19,16 +19,15 @@ class Template:
     """Шаблон жалобы.
 
     Для important:
-        formalized и theses могут быть списками парафраз (≥1 элемент).
+        formalized — список парафразов (≥1 элемент).
         Генератор ротирует их при создании вариаций — fix #3.
 
     Для not_important:
-        category/subcategory = None, formalized/theses = None.
+        category/subcategory = None, formalized = None.
     """
 
     core: str
     formalized: list[str] | None
-    theses: list[list[str]] | None
     cat_id: str | None
     cat_name: str | None
     sub_id: str | None
@@ -42,12 +41,6 @@ class Template:
         if self.is_important():
             if not self.formalized or not any(self.formalized):
                 raise ValueError(f"important template must have non-empty formalized: {self.core!r}")
-            if not self.theses or not any(self.theses):
-                raise ValueError(f"important template must have non-empty theses: {self.core!r}")
-            if len(self.formalized) != len(self.theses):
-                raise ValueError(
-                    f"formalized and theses must have same number of variants: {self.core!r}"
-                )
             if not all([self.cat_id, self.cat_name, self.sub_id, self.sub_name]):
                 raise ValueError(f"important template must have full cat/sub: {self.core!r}")
         else:
@@ -65,7 +58,6 @@ class Example:
     is_important: bool
     reason: str
     formalized: str | None
-    theses: list[str] | None
     cat_id: str | None
     cat_name: str | None
     sub_id: str | None
@@ -74,12 +66,11 @@ class Example:
     ambiguous: bool = False  # fix #10 — пограничный случай
 
     def to_assistant_json(self) -> str:
-        """Fix #4: для not_important formalized=null и theses=null (не identity)."""
+        """Fix #4: для not_important formalized=null (не identity)."""
         obj = {
             "is_important": self.is_important,
             "reason": self.reason,
             "formalized_text": self.formalized,
-            "theses": self.theses,
             "category": (
                 {"id": self.cat_id, "name": self.cat_name} if self.cat_id else None
             ),
@@ -112,34 +103,21 @@ class Example:
 
 
 def template_from_tuple(t: tuple) -> Template:
-    """Конвертор из старого формата (core, formalized, theses, cat_id, ...)
-    в новый Template. formalized/theses могут быть строкой/списком."""
-    core, formalized, theses, cat_id, cat_name, sub_id, sub_name, reason = t
+    """Конвертор из формата (core, formalized, cat_id, cat_name, sub_id, sub_name, reason)
+    в Template. formalized может быть строкой/списком."""
+    core, formalized, cat_id, cat_name, sub_id, sub_name, reason = t
 
     if cat_id is None:
         formalized_list: list[str] | None = None
-        theses_list: list[list[str]] | None = None
     else:
         if isinstance(formalized, str):
             formalized_list = [formalized]
         else:
             formalized_list = list(formalized)
 
-        if theses and isinstance(theses[0], str):
-            theses_list = [list(theses)]
-        else:
-            theses_list = [list(group) for group in theses] if theses else [[]]
-
-        # подгоняем по количеству — если formalized 3, а theses 1 → дублируем theses
-        if len(theses_list) == 1 and len(formalized_list) > 1:
-            theses_list = theses_list * len(formalized_list)
-        elif len(formalized_list) == 1 and len(theses_list) > 1:
-            formalized_list = formalized_list * len(theses_list)
-
     tmpl = Template(
         core=core,
         formalized=formalized_list,
-        theses=theses_list,
         cat_id=cat_id,
         cat_name=cat_name,
         sub_id=sub_id,

@@ -3,8 +3,8 @@
 seq2seq_bench.py — бенчмарк TextProcessor (rut5-base-multitask).
 
 Считает на test hold-out (только important-примеры):
-  - Quality: ROUGE-1/2/L для formalize() и extract_theses()
-  - Latency: среднее + p50/p95 в мс на (formalize + theses)
+  - Quality: ROUGE-1/2/L для formalize()
+  - Latency: среднее + p50/p95 в мс на formalize()
   - Memory:  размер модели на диске + RSS процесса
 
 Результат:
@@ -62,18 +62,16 @@ def run(limit: int | None = None) -> str:
 
     scorer = _make_rouge_scorer()
 
-    # Берём только important — для неважных нет formalized_text / theses
+    # Берём только important — для неважных нет formalized_text
     test = [item for item in load_test_set(limit=limit) if item.label == 1]
     logger.info("Test set (important only): %d examples", len(test))
 
     form_r1, form_r2, form_rl = [], [], []
-    thes_r1, thes_r2, thes_rl = [], [], []
     latencies: list[float] = []
 
     for i, item in enumerate(test):
         t0 = time.time()
         formalized = proc.formalize(item.text)
-        theses = proc.extract_theses(item.text)
         latencies.append(time.time() - t0)
 
         ref_form = item.answer.get("formalized_text", "")
@@ -82,15 +80,6 @@ def run(limit: int | None = None) -> str:
             form_r1.append(sc["rouge1"].fmeasure)
             form_r2.append(sc["rouge2"].fmeasure)
             form_rl.append(sc["rougeL"].fmeasure)
-
-        ref_theses = item.answer.get("theses", [])
-        if ref_theses and theses:
-            ref_str = "\n".join(f"- {t}" for t in ref_theses)
-            pred_str = "\n".join(f"- {t}" for t in theses)
-            sc = scorer.score(ref_str, pred_str)
-            thes_r1.append(sc["rouge1"].fmeasure)
-            thes_r2.append(sc["rouge2"].fmeasure)
-            thes_rl.append(sc["rougeL"].fmeasure)
 
         if (i + 1) % 25 == 0:
             logger.info("  %d/%d done", i + 1, len(test))
@@ -117,10 +106,7 @@ def run(limit: int | None = None) -> str:
         f"  formalize() — scored on {len(form_rl)} examples:",
         f"    ROUGE-1: {avg(form_r1):.4f}  ROUGE-2: {avg(form_r2):.4f}  ROUGE-L: {avg(form_rl):.4f}",
         "",
-        f"  extract_theses() — scored on {len(thes_rl)} examples:",
-        f"    ROUGE-1: {avg(thes_r1):.4f}  ROUGE-2: {avg(thes_r2):.4f}  ROUGE-L: {avg(thes_rl):.4f}",
-        "",
-        "--- 2. LATENCY (formalize + theses per example) ---",
+        "--- 2. LATENCY (formalize per example) ---",
         f"  Model load: {t_load:.1f}s",
         f"  Avg:        {avg_ms:.0f} ms",
         f"  p50:        {p50_ms:.0f} ms",

@@ -26,30 +26,13 @@ public sealed class AppealsRepositoryIntegrationTests(PostgresFixture fixture) :
         Id = Guid.NewGuid(),
         UserId = userId,
         Text = text,
-        Summary = text,
         FormalizedText = text,
         IsImportant = true,
         ImportantConfidence = 0.5f,
-        Reason = "reason",
-        Theses = new List<string> { "a", "b" },
         CategoryId = categoryId,
         Status = AppealStatus.Processed,
         CreatedAt = DateTimeOffset.UtcNow,
     };
-
-    [Fact]
-    public async Task Upsert_persists_jsonb_theses()
-    {
-        var a = NewAppeal();
-        a.Theses = new List<string> { "первый", "второй" };
-
-        await _repo.UpsertAsync(a);
-
-        var raw = await _db.Database
-            .SqlQueryRaw<string>("SELECT theses::text AS \"Value\" FROM appeals WHERE id = {0}", a.Id)
-            .SingleAsync();
-        raw.Should().Contain("первый").And.Contain("второй");
-    }
 
     [Fact]
     public async Task Upsert_replaces_mutable_fields_on_conflict()
@@ -62,12 +45,9 @@ public sealed class AppealsRepositoryIntegrationTests(PostgresFixture fixture) :
             Id = a.Id,
             UserId = "ignored-on-update",
             Text = "ignored-on-update",
-            Summary = "summary-2",
             FormalizedText = "formalized-2",
             IsImportant = false,
             ImportantConfidence = 0.1f,
-            Reason = "reason-2",
-            Theses = new List<string> { "new" },
             CategoryId = "cat",
             CategoryName = "Cat",
             Status = AppealStatus.Processed,
@@ -78,9 +58,9 @@ public sealed class AppealsRepositoryIntegrationTests(PostgresFixture fixture) :
         var saved = await _db.Set<Appeal>().AsNoTracking().SingleAsync(x => x.Id == a.Id);
         saved.UserId.Should().Be("u1");
         saved.Text.Should().Be("text");
-        saved.Summary.Should().Be("summary-2");
+        saved.FormalizedText.Should().Be("formalized-2");
         saved.IsImportant.Should().BeFalse();
-        saved.Theses.Should().Equal("new");
+        saved.CategoryId.Should().Be("cat");
     }
 
     [Fact]

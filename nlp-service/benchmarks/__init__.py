@@ -3,7 +3,7 @@ benchmarks — per-model бенчмарки и общие хелперы.
 
 Модули:
   classifier_bench.py  — accuracy / F1 / precision / recall
-  seq2seq_bench.py     — ROUGE-1/2/L для formalize + theses
+  seq2seq_bench.py     — ROUGE-1/2/L для formalize
   similarity_bench.py  — top-1 category / subcategory accuracy
   benchmark.py         — раннер всех трёх
 

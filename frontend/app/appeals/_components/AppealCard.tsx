@@ -65,20 +65,6 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
         </div>
       )}
 
-      {appeal.theses.length > 0 && (
-        <div className="text-xs">
-          <p className="font-medium text-foreground mb-1">Ключевые слова:</p>
-          <ul className="space-y-0.5">
-            {appeal.theses.map((t, i) => (
-              <li key={i} className="flex items-start gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0 mt-1.5" />
-                <span className="text-muted-foreground leading-relaxed">{t}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {appeal.category && (
         <p className="text-xs text-muted-foreground">
           <span className="font-medium text-foreground">Категория: </span>

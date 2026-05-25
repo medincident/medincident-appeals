@@ -7,8 +7,6 @@ namespace AiMedincident.Backend.Features.Appeals;
 
 public static class AppealRowBuilder
 {
-    public const int SummaryMaxChars = 50;
-
     public static Appeal Build(AppealSubmit submit, NlpAnalyzeResponse nlp)
     {
         var row = new Appeal
@@ -16,14 +14,11 @@ public static class AppealRowBuilder
             Id = Guid.Parse(submit.Id),
             UserId = submit.UserId ?? string.Empty,
             Text = submit.Text,
-            Summary = MakeSummary(submit.Text, SummaryMaxChars),
             FormalizedText = nlp.FormalizedText ?? string.Empty,
             IsImportant = nlp.IsImportant,
             ImportantConfidence = nlp.ImportantConfidence != 0d
                 ? (float?)nlp.ImportantConfidence
                 : null,
-            Reason = nlp.Reason ?? string.Empty,
-            Theses = nlp.Theses?.ToList() ?? [],
             Status = AppealStatus.Processed,
             CreatedAt = ParseCreatedAt(submit.CreatedAt),
         };
@@ -49,19 +44,6 @@ public static class AppealRowBuilder
             raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var ts)
             ? ts
             : default;
-    }
-
-    internal static string MakeSummary(string text, int max)
-    {
-        var collapsed = string.Join(' ', text.Split(
-            (char[]?)null, StringSplitOptions.RemoveEmptyEntries));
-        var enumerator = StringInfo.GetTextElementEnumerator(collapsed);
-        var elements = new List<string>();
-        while (enumerator.MoveNext())
-            elements.Add((string)enumerator.Current);
-
-        if (elements.Count <= max) return collapsed;
-        return string.Concat(elements.Take(max - 1)) + "…";
     }
 
     private static string? ValueOrNull(IReadOnlyDictionary<string, string> dict, string key) =>

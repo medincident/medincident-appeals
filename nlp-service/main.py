@@ -114,7 +114,6 @@ class AnalyzeResponse(BaseModel):
     is_important: bool
     reason: str
     formalized_text: str
-    theses: list[str]
     category: dict[str, str] | None
     subcategory: dict[str, str] | None
 
