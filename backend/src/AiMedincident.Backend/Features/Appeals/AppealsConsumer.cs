@@ -1,6 +1,8 @@
 using System.Text.Json;
 using AiMedincident.Backend.Features.Appeals.Data;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
+using AiMedincident.Backend.Shared.Configuration;
+using Microsoft.Extensions.Options;
 using NATS.Client.JetStream;
 
 namespace AiMedincident.Backend.Features.Appeals;
@@ -8,9 +10,11 @@ namespace AiMedincident.Backend.Features.Appeals;
 public sealed class AppealsConsumer(
     INatsJSContext jetStream,
     IServiceScopeFactory scopeFactory,
+    IOptions<AppOptions> options,
     ILogger<AppealsConsumer> logger) : BackgroundService
 {
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan GracefulDrainTimeout = TimeSpan.FromSeconds(60);
 
     private volatile bool _running;
 
@@ -25,17 +29,22 @@ public sealed class AppealsConsumer(
             AppealsStreamConfig.BuildConsumerConfig(),
             stoppingToken);
 
+        var maxConcurrent = options.Value.AppealsMaxConcurrentHandlers;
+        using var slots = new SemaphoreSlim(maxConcurrent, maxConcurrent);
+
         _running = true;
         logger.LogInformation(
-            "Appeals consumer started (stream={Stream}, durable={Durable})",
+            "Appeals consumer started (stream={Stream}, durable={Durable}, maxConcurrent={Max})",
             AppealsStreamConfig.StreamName,
-            AppealsStreamConfig.DurableConsumer);
+            AppealsStreamConfig.DurableConsumer,
+            maxConcurrent);
 
         try
         {
             await foreach (var msg in consumer.ConsumeAsync<byte[]>(cancellationToken: stoppingToken))
             {
-                await HandleAsync(msg, stoppingToken);
+                await slots.WaitAsync(stoppingToken);
+                _ = HandleInBackgroundAsync(msg, slots, stoppingToken);
             }
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -44,6 +53,43 @@ public sealed class AppealsConsumer(
         finally
         {
             _running = false;
+            await DrainAsync(slots, maxConcurrent);
+        }
+    }
+
+    private async Task HandleInBackgroundAsync(NatsJSMsg<byte[]> msg, SemaphoreSlim slots, CancellationToken ct)
+    {
+        try
+        {
+            await HandleAsync(msg, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Unhandled error in HandleAsync");
+        }
+        finally
+        {
+            slots.Release();
+        }
+    }
+
+    private async Task DrainAsync(SemaphoreSlim slots, int maxConcurrent)
+    {
+        using var drainCts = new CancellationTokenSource(GracefulDrainTimeout);
+        try
+        {
+            for (var i = 0; i < maxConcurrent; i++)
+                await slots.WaitAsync(drainCts.Token);
+            logger.LogInformation("Appeals consumer drained gracefully");
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogWarning(
+                "Appeals consumer drain timed out after {Seconds}s — in-flight handlers will be redelivered via AckWait",
+                GracefulDrainTimeout.TotalSeconds);
         }
     }
 

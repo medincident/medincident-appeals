@@ -26,4 +26,33 @@ public sealed class AppOptions
 
     [Range(1, 1440)]
     public int AppealsResubmitStaleMinutes { get; set; } = 2;
+
+    [Range(1, 100)]
+    public int AppealsMaxConcurrentHandlers { get; set; } = 5;
+
+    public NlpResilienceOptions Nlp { get; set; } = new();
+}
+
+public sealed class NlpResilienceOptions
+{
+    [Range(1, 100)]
+    public int MaxConcurrency { get; set; } = 10;
+
+    [Range(0, 1000)]
+    public int QueueLimit { get; set; } = 20;
+
+    [Range(1, 600)]
+    public int TimeoutSeconds { get; set; } = 30;
+
+    [Range(0.0, 1.0)]
+    public double CircuitFailureRatio { get; set; } = 0.5;
+
+    [Range(1, 1000)]
+    public int CircuitMinThroughput { get; set; } = 5;
+
+    [Range(1, 600)]
+    public int CircuitSamplingSeconds { get; set; } = 30;
+
+    [Range(1, 600)]
+    public int CircuitBreakSeconds { get; set; } = 30;
 }
