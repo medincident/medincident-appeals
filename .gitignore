@@ -30,3 +30,6 @@ Thumbs.db
 
 .claude
 *.zip
+
+# Large dataset, not versioned in git
+dataset.jsonl
