@@ -1,0 +1,1 @@
+"""Benchmarks для llm-service."""

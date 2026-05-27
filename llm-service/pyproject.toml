@@ -1,15 +1,24 @@
 [project]
 name = "llm-service"
-version = "0.1.0"
-description = "FastAPI wrapper around Ollama: /analyze + NATS-driven categories + transparent /v1/* proxy"
+version = "0.4.0"
+description = "FastAPI + llama-cpp-python"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0.0",
     "nats-py>=2.9.0",
     "httpx>=0.27.0",
     "orjson>=3.10.0",
-    "pydantic>=2.0.0",
+    "llama-cpp-python>=0.3.2",
+    "outlines>=0.1.0",
+    "huggingface-hub>=0.26.0",
+]
+
+[project.optional-dependencies]
+bench = [
+    "rouge-score>=0.1.2",
+    "scikit-learn>=1.5.0",
 ]
 
 [tool.ruff]
