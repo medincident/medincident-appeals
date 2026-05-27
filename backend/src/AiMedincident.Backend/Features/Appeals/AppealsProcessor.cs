@@ -7,7 +7,7 @@ using AiMedincident.Backend.Features.Nlp.Data;
 namespace AiMedincident.Backend.Features.Appeals;
 
 public class AppealsProcessor(
-    NlpClient nlp,
+    IAnalyzeClient analyzer,
     AppealsRepository repository,
     ILogger<AppealsProcessor> logger)
 {
@@ -49,7 +49,7 @@ public class AppealsProcessor(
         NlpAnalyzeResponse nlpResult;
         try
         {
-            nlpResult = await nlp.AnalyzeAsync(submit.Text, ct);
+            nlpResult = await analyzer.AnalyzeAsync(submit.Text, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -66,7 +66,7 @@ public class AppealsProcessor(
             {
                 logger.LogError(dbEx, "Failed to enqueue error to outbox (id={Id})", submit.Id);
             }
-            return new ProcessResult.NlpFailure(ex.Message);
+            return new ProcessResult.AppealAnalyzeFailure(ex.Message);
         }
 
         try

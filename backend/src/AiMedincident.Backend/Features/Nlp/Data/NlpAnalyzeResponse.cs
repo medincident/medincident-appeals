@@ -10,9 +10,6 @@ public sealed record NlpAnalyzeResponse
     [JsonPropertyName("important_confidence")]
     public double ImportantConfidence { get; init; }
 
-    [JsonPropertyName("reason")]
-    public string? Reason { get; init; }
-
     [JsonPropertyName("formalized_text")]
     public string? FormalizedText { get; init; }
 

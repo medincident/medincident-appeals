@@ -20,7 +20,7 @@ public sealed class AppealsDlqRepositoryIntegrationTests(PostgresFixture fixture
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();
 
-    private static AppealDlqEntry MakeEntry(Guid? id = null, DlqFailureType type = DlqFailureType.NlpFailure, int deliveryCount = 5) =>
+    private static AppealDlqEntry MakeEntry(Guid? id = null, DlqFailureType type = DlqFailureType.AnalyzeFailure, int deliveryCount = 5) =>
         new()
         {
             Id = id ?? Guid.NewGuid(),
@@ -43,7 +43,7 @@ public sealed class AppealsDlqRepositoryIntegrationTests(PostgresFixture fixture
 
         var saved = await _db.Set<AppealDlqEntry>().AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
         saved.Id.Should().Be(entry.Id);
-        saved.FailureType.Should().Be(DlqFailureType.NlpFailure);
+        saved.FailureType.Should().Be(DlqFailureType.AnalyzeFailure);
         saved.DeliveryCount.Should().Be(5);
     }
 
@@ -51,7 +51,7 @@ public sealed class AppealsDlqRepositoryIntegrationTests(PostgresFixture fixture
     public async Task Upsert_is_idempotent_and_updates_existing()
     {
         var id = Guid.NewGuid();
-        await _repo.UpsertAsync(MakeEntry(id, DlqFailureType.NlpFailure, 3), TestContext.Current.CancellationToken);
+        await _repo.UpsertAsync(MakeEntry(id, DlqFailureType.AnalyzeFailure, 3), TestContext.Current.CancellationToken);
         await _repo.UpsertAsync(MakeEntry(id, DlqFailureType.ExceededMaxDeliver, 5), TestContext.Current.CancellationToken);
 
         var rows = await _db.Set<AppealDlqEntry>().AsNoTracking().ToListAsync(TestContext.Current.CancellationToken);
@@ -93,12 +93,12 @@ public sealed class AppealsDlqRepositoryIntegrationTests(PostgresFixture fixture
     [Fact]
     public async Task Count_and_CountByType_return_correct_numbers()
     {
-        await _repo.UpsertAsync(MakeEntry(type: DlqFailureType.NlpFailure), TestContext.Current.CancellationToken);
-        await _repo.UpsertAsync(MakeEntry(type: DlqFailureType.NlpFailure), TestContext.Current.CancellationToken);
+        await _repo.UpsertAsync(MakeEntry(type: DlqFailureType.AnalyzeFailure), TestContext.Current.CancellationToken);
+        await _repo.UpsertAsync(MakeEntry(type: DlqFailureType.AnalyzeFailure), TestContext.Current.CancellationToken);
         await _repo.UpsertAsync(MakeEntry(type: DlqFailureType.DbFailure), TestContext.Current.CancellationToken);
 
         (await _repo.CountAsync(TestContext.Current.CancellationToken)).Should().Be(3);
-        (await _repo.CountByTypeAsync(DlqFailureType.NlpFailure, TestContext.Current.CancellationToken)).Should().Be(2);
+        (await _repo.CountByTypeAsync(DlqFailureType.AnalyzeFailure, TestContext.Current.CancellationToken)).Should().Be(2);
         (await _repo.CountByTypeAsync(DlqFailureType.DbFailure, TestContext.Current.CancellationToken)).Should().Be(1);
         (await _repo.CountByTypeAsync(DlqFailureType.PublishFailure, TestContext.Current.CancellationToken)).Should().Be(0);
     }

@@ -20,7 +20,7 @@ public sealed class AppealDlqEntry
 [JsonConverter(typeof(JsonStringEnumConverter<DlqFailureType>))]
 public enum DlqFailureType
 {
-    [JsonStringEnumMemberName("nlp_failure")]      NlpFailure,
+    [JsonStringEnumMemberName("analyze_failure")]  AnalyzeFailure,
     [JsonStringEnumMemberName("db_failure")]       DbFailure,
     [JsonStringEnumMemberName("publish_failure")]  PublishFailure,
     [JsonStringEnumMemberName("invalid_message")]  InvalidMessage,

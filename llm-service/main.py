@@ -8,12 +8,19 @@ import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 
+import nats
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from models.llm import LlamaCppClient
 from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, model_path
-from service import CategoryCache, CategorySource, build_source, run_analyze
+from service import (
+    CategoryCache,
+    CategorySource,
+    build_source,
+    run_analyze,
+    subscribe_analyze,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,6 +34,7 @@ LLM_QUANT = os.getenv("LLM_QUANT", DEFAULT_QUANT)
 LLM_N_CTX = int(os.getenv("LLM_N_CTX", "4096"))
 LLM_N_THREADS = int(os.getenv("LLM_N_THREADS", "0")) or None
 LLM_N_GPU_LAYERS = int(os.getenv("LLM_N_GPU_LAYERS", "0"))
+NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
 
 
 @dataclass
@@ -34,6 +42,8 @@ class AppState:
     client: LlamaCppClient
     cache: CategoryCache
     source: CategorySource
+    nc: object | None = field(default=None)
+    sub: object | None = field(default=None)
     watcher_task: asyncio.Task | None = field(default=None)
 
 
@@ -62,8 +72,23 @@ async def lifespan(app: FastAPI):
     state.watcher_task = asyncio.create_task(state.source.watch(state.cache))
 
     try:
+        state.nc = await nats.connect(NATS_URL)
+        logger.info("NATS connected: %s", NATS_URL)
+        state.sub = await subscribe_analyze(
+            state.nc, state.client, state.cache, run_analyze
+        )
+    except Exception:
+        logger.exception("Failed to connect to NATS, llm-service runs in HTTP-only mode")
+
+    try:
         yield
     finally:
+        if state.sub is not None:
+            with contextlib.suppress(Exception):
+                await state.sub.unsubscribe()
+        if state.nc is not None:
+            with contextlib.suppress(Exception):
+                await state.nc.drain()
         if state.watcher_task:
             state.watcher_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -102,4 +127,5 @@ async def health(request: Request):
         "model_loaded": state.client.is_alive,
         "model_path": str(state.client.model_path),
         "categories_cached": state.cache.size(),
+        "nats_connected": state.nc is not None and state.nc.is_connected,
     }

@@ -10,7 +10,7 @@ using Polly.Timeout;
 
 namespace AiMedincident.Backend.Features.Nlp;
 
-public class NlpClient
+public class NlpClient : IAnalyzeClient
 {
     public const string AnalyzeSubject = "nlp.analyze";
     public const string ErrorHeader = "Nats-Error";

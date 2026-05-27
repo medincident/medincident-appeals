@@ -148,10 +148,10 @@ public sealed class AppealsConsumer(
             case ProcessResult.Failure failure:
                 var failureType = failure switch
                 {
-                    ProcessResult.NlpFailure => DlqFailureType.NlpFailure,
+                    ProcessResult.AppealAnalyzeFailure => DlqFailureType.AnalyzeFailure,
                     ProcessResult.DbFailure => DlqFailureType.DbFailure,
                     ProcessResult.PublishFailure => DlqFailureType.PublishFailure,
-                    _ => DlqFailureType.NlpFailure,
+                    _ => DlqFailureType.AnalyzeFailure,
                 };
 
                 if (deliveryCount >= AppealsStreamConfig.MaxDeliver)

@@ -75,7 +75,7 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
 
         var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
 
-        result.Should().BeOfType<ProcessResult.NlpFailure>();
+        result.Should().BeOfType<ProcessResult.AppealAnalyzeFailure>();
         var outboxRows = await _db.Set<OutboxEntry>().AsNoTracking().ToListAsync(TestContext.Current.CancellationToken);
         outboxRows.Should().ContainSingle();
         outboxRows[0].AggregateId.Should().Be(Guid.Parse(submit.Id));

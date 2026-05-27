@@ -8,7 +8,7 @@ public abstract record ProcessResult
 
     public abstract record Failure(string Reason) : ProcessResult;
     public sealed record InvalidMessage(string Reason) : Failure(Reason);
-    public sealed record NlpFailure(string Reason) : Failure(Reason);
+    public sealed record AppealAnalyzeFailure(string Reason) : Failure(Reason);
     public sealed record DbFailure(string Reason) : Failure(Reason);
     public sealed record PublishFailure(string Reason) : Failure(Reason);
 }

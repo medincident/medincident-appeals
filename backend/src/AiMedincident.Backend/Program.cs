@@ -2,6 +2,7 @@ using AiMedincident.Backend.Features.Appeals;
 using AiMedincident.Backend.Features.Audit;
 using AiMedincident.Backend.Features.Auth;
 using AiMedincident.Backend.Features.Health;
+using AiMedincident.Backend.Features.Llm;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Retention;
 using AiMedincident.Backend.Shared.Configuration;
@@ -32,6 +33,7 @@ builder.Services
     .AddNatsMessaging(appOptions)
     .AddZitadelAuth(appOptions)
     .AddNlp()
+    .AddLlm()
     .AddAudit()
     .AddAppealRetention()
     .AddAppeals();

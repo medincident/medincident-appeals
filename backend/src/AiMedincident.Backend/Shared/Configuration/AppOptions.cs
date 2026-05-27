@@ -31,6 +31,8 @@ public sealed class AppOptions
     public int AppealsMaxConcurrentHandlers { get; set; } = 5;
 
     public NlpResilienceOptions Nlp { get; set; } = new();
+
+    public LlmResilienceOptions Llm { get; set; } = new();
 }
 
 public sealed class NlpResilienceOptions
@@ -55,4 +57,16 @@ public sealed class NlpResilienceOptions
 
     [Range(1, 600)]
     public int CircuitBreakSeconds { get; set; } = 30;
+}
+
+public sealed class LlmResilienceOptions
+{
+    [Range(1, 20)]
+    public int MaxConcurrency { get; set; } = 1;
+
+    [Range(0, 100)]
+    public int QueueLimit { get; set; } = 5;
+
+    [Range(10, 600)]
+    public int TimeoutSeconds { get; set; } = 120;
 }
