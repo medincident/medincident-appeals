@@ -1,18 +1,21 @@
 {
   "__meta__": true,
-  "version": "v2",
+  "version": "v3",
   "seed": 42,
   "target": 3000,
-  "n_important_templates": 176,
+  "n_important_templates": 206,
   "n_not_important_templates": 120,
-  "templates_hash": "859c2c3142960c00",
+  "templates_hash": "5b760a698a0e4763",
   "aug_probs": {
     "synonyms": 0.4,
     "colloquial": 0.25,
     "style": 0.15,
     "fixed_typos": 0.25,
     "qwerty_typos": 0.15,
-    "multi_complaint": 0.08
+    "multi_complaint": 0.08,
+    "distractors": 0.3,
+    "distractors_min": 2,
+    "distractors_max": 8
   },
   "ambiguous_rate": 0.05
 }

@@ -495,6 +495,117 @@ def compose_user_text(
         noisy = apply_qwerty_typos(noisy, rng)
     return noisy, clean
 
+DISTRACTOR_INTROS: list[str] = [
+    "Меня зовут {name}.",
+    "Лежу здесь уже {days} день после {what}.",
+    "Хочу отдельно поблагодарить {staff} за внимательность.",
+    "Соседка по палате очень милая женщина, приехала из {city}.",
+    "Сын вчера приезжал, привёз фрукты и сменное бельё.",
+    "Жена очень переживает, звонит каждый час.",
+    "Дочка уже несколько раз спрашивала когда меня выпишут.",
+    "На обед сегодня был суп, опять холодный, но это ладно.",
+    "Чай вечером тоже остывший, но это мелочи.",
+    "За окном дождь третий день, настроение портит.",
+    "Телевизор в палате не работает, скучно лежать.",
+    "Книгу читаю, что родственники принесли.",
+    "Хочу домой уже, надоело всё это.",
+    "Сегодня хорошо что {staff} зашёл, объяснил всё.",
+    "Кстати, нянечка с утренней смены — золотой человек, побольше бы таких.",
+    "Палата у меня на четверых, остальные приятные люди.",
+    "Раньше лежал в другой больнице, там тоже всякое было.",
+    "Возраст у меня уже немолодой, всё непросто.",
+    "Я пенсионерка, инвалид второй группы.",
+    "Работаю учителем, времени на здоровье обычно не хватает.",
+    "Скажу честно, не люблю жаловаться, но тут уже не могу молчать.",
+    "Не подумайте что я конфликтная, просто это правда беспокоит.",
+    "Лежу в палате 305, на втором этаже.",
+    "Дом у нас на четыре квартиры, все соседи в курсе моей истории.",
+    "Внук в школу пошёл, переживаю что не помогу с уроками.",
+    "Хочу сказать спасибо всем медработникам этого отделения вообще.",
+]
+
+DISTRACTOR_NAMES: list[str] = [
+    "Валентина Петровна", "Иван Сергеевич", "Мария Ивановна", "Николай Петрович",
+    "Анна Викторовна", "Светлана Михайловна", "Алексей Николаевич", "Татьяна Алексеевна",
+    "Ольга Дмитриевна", "Сергей Васильевич", "Зинаида Павловна", "Юрий Анатольевич",
+]
+
+DISTRACTOR_STAFF_NAMES: list[str] = [
+    "медсестра Ольга", "медсестра Татьяна", "нянечка Зина", "санитарка Галина",
+    "доктор Сергей Иванович", "хирург Андрей Петрович", "врач Наталья Викторовна",
+    "медсестра Лена", "медсестра Ирина", "доктор Михаил Дмитриевич",
+]
+
+DISTRACTOR_CITIES: list[str] = [
+    "Калуги", "Тулы", "Рязани", "Воронежа", "Твери", "Курска",
+    "Ярославля", "Костромы", "Владимира", "Иваново",
+]
+
+DISTRACTOR_PROCEDURES: list[str] = [
+    "операции", "обследования", "терапии", "лечения", "капельниц",
+]
+
+
+def _instantiate_distractor(template: str, rng: random.Random) -> str:
+    """Подставляет {name}, {staff}, {city}, {days}, {what}."""
+    return (template
+            .replace("{name}", rng.choice(DISTRACTOR_NAMES))
+            .replace("{staff}", rng.choice(DISTRACTOR_STAFF_NAMES))
+            .replace("{city}", rng.choice(DISTRACTOR_CITIES))
+            .replace("{days}", str(rng.randint(2, 14)))
+            .replace("{what}", rng.choice(DISTRACTOR_PROCEDURES)))
+
+
+def apply_distractors(
+    core: str,
+    rng: random.Random,
+    n_distractors: int,
+) -> str:
+    """Размывает core, вставляя `n_distractors` отвлекающих фраз в случайные позиции.
+
+    Стратегия:
+      - выбираем `n_distractors` уникальных шаблонов из DISTRACTOR_INTROS
+      - разбиваем core на предложения (по `. `)
+      - вставляем distractors в случайные позиции между предложениями
+
+    Таргет (formalized) НЕ меняется — модель учится извлекать клиническое
+    ядро из шума. Используется в generator.py с probs.distractors=0.30.
+    """
+    if n_distractors <= 0:
+        return core
+
+    # уникальные шаблоны distractor'ов (не один и тот же 8 раз)
+    k = min(n_distractors, len(DISTRACTOR_INTROS))
+    distractor_templates = rng.sample(DISTRACTOR_INTROS, k=k)
+    distractors = [_instantiate_distractor(t, rng) for t in distractor_templates]
+
+    # разбиваем по предложениям
+    parts = [p.strip() for p in core.replace("!", ".").replace("?", ".").split(".") if p.strip()]
+    if len(parts) < 2:
+        # короткий core — раскладываем distractor'ы до и после
+        split_at = rng.randint(0, len(distractors))
+        before = " ".join(distractors[:split_at])
+        after = " ".join(distractors[split_at:])
+        body = core.rstrip(". ") + "."
+        return f"{before} {body} {after}".strip().replace("  ", " ")
+
+    # выбираем случайные slot-позиции для distractor'ов
+    n_slots = len(parts) + 1
+    positions = sorted(rng.choices(range(n_slots), k=len(distractors)))
+
+    out_parts: list[str] = []
+    di = 0
+    for i in range(len(parts)):
+        while di < len(positions) and positions[di] == i:
+            out_parts.append(distractors[di])
+            di += 1
+        out_parts.append(parts[i].rstrip(". ") + ".")
+    while di < len(positions):
+        out_parts.append(distractors[di])
+        di += 1
+
+    return " ".join(out_parts).replace("  ", " ").strip()
+
 
 def combine_multi(core_a: str, core_b: str, rng: random.Random) -> str:
     """Fix #8: склеивает два ядра жалоб в одно сообщение.

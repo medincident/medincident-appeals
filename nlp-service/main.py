@@ -112,7 +112,6 @@ class AnalyzeRequest(BaseModel):
 
 class AnalyzeResponse(BaseModel):
     is_important: bool
-    reason: str
     formalized_text: str
     category: dict[str, str] | None
     subcategory: dict[str, str] | None

@@ -86,7 +86,6 @@ class CategoryMatcher:
         if self._category_embeddings is None or not self._categories:
             return None, None
 
-        # Усредняем оригинальный и формальный текст
         texts = [text] if not formalized or formalized == text else [text, formalized]
         query = _normalize(self._encode(texts).mean(axis=0))
 

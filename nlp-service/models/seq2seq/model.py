@@ -36,8 +36,6 @@ class TextProcessor:
                 BASE_MODEL,
             )
 
-        # rut5 использует SentencePiece. AutoTokenizer тянул бы лишний tiktoken —
-        # берём T5Tokenizer напрямую.
         self.tokenizer = T5Tokenizer.from_pretrained(
             source, cache_dir=CACHE_DIR if not self.is_finetuned else None
         )
@@ -46,8 +44,7 @@ class TextProcessor:
         )
         self.model.to(self.device)
         self.model.eval()
-        # rut5 приносит с собой generation_config.max_length=20 — конфликтует
-        # с нашим max_new_tokens при generate(). Сбрасываем оба.
+        # rut5 с generation_config.max_length=20; конфликтует с max_new_tokens
         self.model.generation_config.max_length = None
         self.model.config.max_length = None
         logger.info(

@@ -21,7 +21,7 @@ import random
 from collections import defaultdict
 from dataclasses import dataclass
 
-from .augmenters import combine_multi, compose_user_text
+from .augmenters import apply_distractors, combine_multi, compose_user_text
 from .schema import DATASET_VERSION, Example, Template, template_from_tuple
 from .splitter import assign_split
 from .templates import IMPORTANT_TUPLES, NOT_IMPORTANT_TUPLES
@@ -39,7 +39,10 @@ class AugProbs:
     style: float = 0.15
     fixed_typos: float = 0.25
     qwerty_typos: float = 0.15
-    multi_complaint: float = 0.08  # fix #8
+    multi_complaint: float = 0.08
+    distractors: float = 0.30
+    distractors_min: int = 2
+    distractors_max: int = 8
 
 
 # ── Конфиг генерации ─────────────────────────────────────────────────────────
@@ -78,6 +81,10 @@ def _build_example(
     core = tmpl.core
     if second_tmpl is not None:
         core = combine_multi(core, second_tmpl.core, rng)
+
+    if tmpl.is_important() and rng.random() < probs.distractors:
+        n = rng.randint(probs.distractors_min, probs.distractors_max)
+        core = apply_distractors(core, rng, n_distractors=n)
 
     # независимые случайные флаги (fix #1)
     use_synonyms = rng.random() < probs.synonyms
@@ -245,6 +252,9 @@ def generate(cfg: GenConfig | None = None) -> tuple[list[Example], dict]:
             "fixed_typos": probs.fixed_typos,
             "qwerty_typos": probs.qwerty_typos,
             "multi_complaint": probs.multi_complaint,
+            "distractors": probs.distractors,
+            "distractors_min": probs.distractors_min,
+            "distractors_max": probs.distractors_max,
         },
         "ambiguous_rate": cfg.ambiguous_rate,
     }

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Fine-tune rubert-base-cased-conversational на бинарную классификацию important/not_important.
-Результат: trained_models/classifier/. CPU ~1.5ч, GPU ~15мин."""
+"""Fine-tune rubert-tiny2 на бинарную классификацию important/not_important."""
 
 import argparse
 import logging
@@ -28,13 +27,12 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = TRAINED_CLASSIFIER_DIR
 
 
-
 class Split(NamedTuple):
     texts: list[str]
     labels: list[int]
 
 
-def tokenize(tokenizer, split: Split, max_len: int) -> Dataset:
+def tokenize(tokenizer, split: Split, max_len: int):
     encodings = tokenizer(
         split.texts,
         truncation=True,
@@ -84,38 +82,21 @@ def build_splits(examples: list[Example], val_ratio: float, test_ratio: float) -
         return Split(texts=[texts[i] for i in idx], labels=[labels[i] for i in idx])
 
     train, val, test = take(train_idx), take(val_idx), take(test_idx)
-    logger.info(
-        "Split by templates: Train=%d  Val=%d  Test=%d (hold-out)",
-        len(train.labels), len(val.labels), len(test.labels),
-    )
+    logger.info("Split: Train=%d  Val=%d  Test=%d", len(train.labels), len(val.labels), len(test.labels))
     return train, val, test
 
 
-def class_weights(labels: list[int]) -> torch.Tensor:
+def class_weights(labels: list[int]):
     n = len(labels)
     n_pos = sum(labels)
     n_neg = n - n_pos
     return torch.tensor([n / (2 * n_neg), n / (2 * n_pos)], dtype=torch.float)
 
 
-def device_info(requested: str | None) -> tuple[str, str, bool]:
-    """Возвращает (device, human_label, use_fp16)."""
-    chosen = get_device(requested)
-    if requested == "cuda" and not torch.cuda.is_available():
-        logger.warning("--device cuda запрошен, но CUDA недоступна — переключаемся на CPU")
-    if chosen == "cuda":
-        gpu_name = torch.cuda.get_device_name(0)
-        gpu_mem_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-        return chosen, f"GPU ({gpu_name}, {gpu_mem_gb:.1f} GB, fp16)", True
-    if chosen == "mps":
-        return chosen, "MPS (Apple Silicon, fp32)", False
-    return chosen, "CPU (fp32)", False
-
-
 class WeightedTrainer(Trainer):
-    def __init__(self, class_weights: torch.Tensor, **kwargs):
+    def __init__(self, class_weights_tensor: torch.Tensor, **kwargs):
         super().__init__(**kwargs)
-        self._class_weights = class_weights.to(next(self.model.parameters()).device)
+        self._class_weights = class_weights_tensor.to(next(self.model.parameters()).device)
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")
@@ -131,7 +112,7 @@ class WeightedTrainer(Trainer):
 
 def train(args: argparse.Namespace) -> None:
     logger.info("Loading tokenizer: %s", BASE_MODEL)
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR)
+    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, cache_dir=CACHE_DIR, use_fast=True)
 
     examples = load_examples(DATASET_PATH)
     train_split, val_split, test_split = build_splits(examples, args.val_ratio, args.test_ratio)
@@ -148,8 +129,10 @@ def train(args: argparse.Namespace) -> None:
         ignore_mismatched_sizes=True,
     )
 
-    device, device_label, use_fp16 = device_info(args.device)
-    logger.info("Device: %s", device_label)
+    device = get_device(args.device)
+    if args.device == "cuda" and not torch.cuda.is_available():
+        logger.warning("--device cuda запрошен, но недоступно — переключаемся на CPU")
+    logger.info("Device: %s", device)
 
     weights = class_weights(train_split.labels)
     logger.info(
@@ -159,7 +142,7 @@ def train(args: argparse.Namespace) -> None:
 
     patience = min(args.patience, args.epochs - 1)
     trainer = WeightedTrainer(
-        class_weights=weights,
+        class_weights_tensor=weights,
         model=model,
         args=TrainingArguments(
             output_dir=str(OUTPUT_DIR),
@@ -175,8 +158,9 @@ def train(args: argparse.Namespace) -> None:
             metric_for_best_model="f1",
             logging_steps=20,
             warmup_ratio=0.1,
-            fp16=use_fp16,
+            fp16=(device == "cuda"),
             use_cpu=(device == "cpu"),
+            torch_compile=args.torch_compile,
             report_to="none",
         ),
         train_dataset=train_dataset,
@@ -184,26 +168,17 @@ def train(args: argparse.Namespace) -> None:
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
     )
-    logger.info(
-        "Regularization: label_smoothing=%.2f  early_stopping_patience=%d",
-        args.label_smoothing, patience,
-    )
-
-    actual_device = next(trainer.model.parameters()).device
-    logger.info("Model actually on: %s", actual_device)
-    if device == "cuda" and actual_device.type != "cuda":
-        logger.warning("Ожидался CUDA, но модель на %s — проверь окружение", actual_device)
 
     logger.info("Training started...")
-    trainer.train()
+    trainer.train(resume_from_checkpoint=args.resume)
 
-    logger.info("Saving model to %s", OUTPUT_DIR)
+    logger.info("Saving to %s", OUTPUT_DIR)
     trainer.save_model(str(OUTPUT_DIR))
     tokenizer.save_pretrained(str(OUTPUT_DIR))
 
     val_metrics = trainer.evaluate()
     logger.info(
-        "Val metrics: accuracy=%.4f  f1=%.4f",
+        "Val: accuracy=%.4f  f1=%.4f",
         val_metrics["eval_accuracy"], val_metrics["eval_f1"],
     )
 
@@ -211,15 +186,15 @@ def train(args: argparse.Namespace) -> None:
         test_dataset = tokenize(tokenizer, test_split, args.max_len)
         test_metrics = trainer.evaluate(eval_dataset=test_dataset, metric_key_prefix="test")
         logger.info(
-            "Test metrics (hold-out): accuracy=%.4f  f1=%.4f",
+            "Test: accuracy=%.4f  f1=%.4f",
             test_metrics["test_accuracy"], test_metrics["test_f1"],
         )
 
-    logger.info("Done. Model saved to %s", OUTPUT_DIR)
+    logger.info("Done. Saved to %s", OUTPUT_DIR)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Fine-tune rubert-base-cased-conversational importance classifier")
+    parser = argparse.ArgumentParser(description="Fine-tune rubert importance classifier")
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--batch", type=int, default=32)
@@ -227,10 +202,12 @@ def main() -> None:
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None)
-    parser.add_argument("--label-smoothing", type=float, default=0.1,
-                        help="Смягчение таргетов для борьбы с overconfidence (0.0–0.2)")
-    parser.add_argument("--patience", type=int, default=1,
-                        help="Early stopping: сколько эпох без улучшения F1 до остановки")
+    parser.add_argument("--label-smoothing", type=float, default=0.1)
+    parser.add_argument("--patience", type=int, default=1)
+    parser.add_argument("--torch-compile", action="store_true",
+                        help="Включить torch.compile. Первая итерация дольше, дальше быстрее.")
+    parser.add_argument("--resume", action="store_true",
+                        help="Продолжить из последнего checkpoint в trained_models/classifier/.")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

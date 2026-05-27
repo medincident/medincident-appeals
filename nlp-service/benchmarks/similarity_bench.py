@@ -32,7 +32,7 @@ from benchmarks import (
     write_result,
 )
 from models.similarity import BASE_MODEL
-from paths import ensure_categories_service_on_path
+from mock_categories import CATEGORIES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -41,9 +41,6 @@ MODEL_NAME = "similarity"
 
 
 def run(limit: int | None = None) -> str:
-    ensure_categories_service_on_path()
-    from categories import CATEGORIES
-
     from models import CategoryMatcher
 
     logger.info("Loading CategoryMatcher...")

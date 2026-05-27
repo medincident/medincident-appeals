@@ -15,23 +15,6 @@ from models import CategoryMatcher, ImportanceClassifier, TextProcessor
 CONFIDENCE_THRESHOLD = 0.70
 
 
-def build_reason(
-    is_important: bool,
-    subcategory: dict | None,
-    category: dict | None,
-    confident: bool = True,
-) -> str:
-    if not confident:
-        return "Обращение требует ручной проверки: низкая уверенность классификатора"
-    if not is_important:
-        return "Сообщение не содержит жалоб на здоровье или условия пребывания"
-    if subcategory:
-        return f"Содержит жалобу на {subcategory['name'].lower()}"
-    if category:
-        return f"Содержит жалобу по категории: {category['name'].lower()}"
-    return "Содержит жалобу медицинского характера"
-
-
 def run_pipeline(
     text: str,
     override_categories: list[dict] | None,
@@ -47,7 +30,6 @@ def run_pipeline(
         return {
             "is_important": True,
             "important_confidence": confidence,
-            "reason": build_reason(True, None, None, confident=False),
             "formalized_text": text,
             "category": None,
             "subcategory": None,
@@ -57,7 +39,6 @@ def run_pipeline(
         return {
             "is_important": False,
             "important_confidence": confidence,
-            "reason": build_reason(False, None, None),
             "formalized_text": text,
             "category": None,
             "subcategory": None,
@@ -73,7 +54,6 @@ def run_pipeline(
     return {
         "is_important": True,
         "important_confidence": confidence,
-        "reason": build_reason(True, subcategory, category),
         "formalized_text": formalized,
         "category": category,
         "subcategory": subcategory,

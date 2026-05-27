@@ -1,103 +1,85 @@
 #!/usr/bin/env python3
-"""Smoke-test: прогон через реальный pipeline (с confidence-gate)"""
+"""Прогон всех трёх моделей подряд на одном тексте (smoke-test пайплайна).
+
+  uv run python scripts/run_models.py
+  uv run python scripts/run_models.py -m "упал с кровати"
+  uv run python scripts/run_models.py -n 3
+"""
 
 import argparse
 import json
 import random
 
-from paths import DATASET_PATH, ensure_categories_service_on_path
-
-ensure_categories_service_on_path()
+from mock_categories import CATEGORIES
+from paths import DATASET_PATH
 
 DEFAULT_TEXT = "упал с кровати ночью, никто не пришёл на помощь"
 
 
-def load_models():
-    from categories import CATEGORIES
+def load_all():
+    from models.classifier.model import ImportanceClassifier
+    from models.seq2seq.model import TextProcessor
+    from models.similarity.model import CategoryMatcher
 
-    from models import CategoryMatcher, ImportanceClassifier, TextProcessor
+    print("Loading classifier...", flush=True)
+    classifier = ImportanceClassifier()
+    classifier.load()
 
-    clf = ImportanceClassifier()
-    clf.load()
-    proc = TextProcessor()
-    proc.load()
+    print("Loading seq2seq...", flush=True)
+    processor = TextProcessor()
+    processor.load()
+
+    print("Loading similarity...", flush=True)
     matcher = CategoryMatcher()
     matcher.load()
     matcher.update_categories(CATEGORIES)
-    return clf, proc, matcher
+    print()
+
+    return classifier, processor, matcher
 
 
-def run(text: str, clf, proc, matcher) -> None:
-    from service.pipeline import run_pipeline
+def run_pipeline(text: str, classifier, processor, matcher) -> None:
+    from models.classifier.run import print_result as print_classifier
+    from models.seq2seq.run import print_result as print_seq2seq
+    from models.similarity.run import print_result as print_similarity
 
-    width = 65
-    print("\n" + "=" * width)
-    print(f"  текст: {text}")
-    print("=" * width)
-
-    result = run_pipeline(text, None, clf, proc, matcher)
-
-    print(f"  is_important : {result['is_important']}")
-    print(f"  confidence   : {result['important_confidence']:.4f}")
-    print(f"  reason       : {result['reason']}")
-
-    if not result["is_important"]:
-        print("=" * width)
-        return
-
-    # При срабатывании confidence-gate pipeline возвращает пустые поля.
-    if not result["category"]:
-        print("  (низкая уверенность — seq2seq и категория пропущены)")
-        print("=" * width)
-        return
-
-    print(f"  formalized   : {result['formalized_text']}")
-    print(f"  category     : {result['category']['name'] if result['category'] else '—'}")
-    print(f"  subcategory  : {result['subcategory']['name'] if result['subcategory'] else '—'}")
-    print("=" * width)
+    print("=" * 70)
+    print(f"TEXT: {text}")
+    print("=" * 70)
+    print_classifier(classifier, text)
+    print_seq2seq(processor, text)
+    print_similarity(matcher, text)
 
 
-def pick_random(n: int) -> list[str]:
-    # Первая строка — meta-запись, её отфильтровываем.
+def random_dataset_texts(n: int) -> list[str]:
     lines = [
-        line
-        for line in DATASET_PATH.read_text(encoding="utf-8").splitlines()
+        line for line in DATASET_PATH.read_text(encoding="utf-8").splitlines()
         if line.strip() and "messages" in line
     ]
     samples = random.sample(lines, min(n, len(lines)))
-    texts = []
-    for line in samples:
-        ex = json.loads(line)
-        texts.append(ex["messages"][0]["content"])
-    return texts
+    return [json.loads(line)["messages"][0]["content"] for line in samples]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Smoke test NLP-пайплайна")
-    parser.add_argument("-m", "--message", type=str, default=None, help="Свой текст запроса")
-    parser.add_argument(
-        "-n",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Количество случайных запросов из датасета (1+)",
-    )
+    parser = argparse.ArgumentParser(description="Run all three NLP models on input text")
+    parser.add_argument("-m", "--message", type=str, default=None)
+    parser.add_argument("-n", type=int, default=None, help="N случайных текстов из датасета")
     args = parser.parse_args()
 
-    print("Загрузка моделей...")
-    clf, proc, matcher = load_models()
+    if args.n is not None and args.n < 1:
+        parser.error("-n должен быть >= 1")
+
+    classifier, processor, matcher = load_all()
 
     if args.n is not None:
-        if args.n < 1:
-            parser.error("-n должен быть >= 1")
-        texts = pick_random(args.n)
+        texts = random_dataset_texts(args.n)
     elif args.message:
         texts = [args.message]
     else:
         texts = [DEFAULT_TEXT]
 
     for text in texts:
-        run(text, clf, proc, matcher)
+        run_pipeline(text, classifier, processor, matcher)
 
 
 if __name__ == "__main__":

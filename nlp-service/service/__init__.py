@@ -9,10 +9,9 @@ from .metrics import (
     pipeline_requests_total,
 )
 from .nats_client import connect_with_retry, load_categories, watch_categories
-from .pipeline import build_reason, run_pipeline
+from .pipeline import run_pipeline
 
 __all__ = [
-    "build_reason",
     "classifier_predictions_total",
     "connect_with_retry",
     "instrument_app",
