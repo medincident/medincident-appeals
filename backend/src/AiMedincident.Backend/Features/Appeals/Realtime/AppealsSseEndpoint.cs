@@ -9,7 +9,6 @@ namespace AiMedincident.Backend.Features.Appeals.Realtime;
 public static class AppealsSseEndpoint
 {
     private const string Path = "/sse/appeals";
-    private static readonly TimeSpan RevalidateInterval = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan KeepAliveInterval = TimeSpan.FromSeconds(15);
 
     public static IEndpointRouteBuilder MapAppealsSseEndpoint(this IEndpointRouteBuilder app)
@@ -50,14 +49,11 @@ public static class AppealsSseEndpoint
 
         logger.LogInformation("Appeals SSE connected (user={UserId})", userId);
 
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted);
-        var revalidateTask = RevalidateSessionLoopAsync(auth, token, lifetime, logger);
-
         try
         {
-            await PumpAsync(jetStream, http.Response, userId, lifetime);
+            await PumpAsync(jetStream, http.Response, userId, http.RequestAborted);
         }
-        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (http.RequestAborted.IsCancellationRequested)
         {
         }
         catch (Exception ex)
@@ -66,8 +62,6 @@ public static class AppealsSseEndpoint
         }
         finally
         {
-            await lifetime.CancelAsync();
-            await revalidateTask;
             logger.LogInformation("Appeals SSE disconnected (user={UserId})", userId);
         }
     }
@@ -76,7 +70,7 @@ public static class AppealsSseEndpoint
         INatsJSContext jetStream,
         HttpResponse response,
         string userId,
-        CancellationTokenSource lifetime)
+        CancellationToken ct)
     {
         var consumer = await jetStream.CreateOrderedConsumerAsync(
             AppealsStreamConfig.StreamName,
@@ -85,14 +79,15 @@ public static class AppealsSseEndpoint
                 FilterSubjects = [AppealsStreamConfig.ResultSubjectWildcard],
                 DeliverPolicy = ConsumerConfigDeliverPolicy.New,
             },
-            lifetime.Token);
+            ct);
 
         using var keepAliveTimer = new PeriodicTimer(KeepAliveInterval);
-        var keepAliveTask = SendKeepAlivesAsync(response, keepAliveTimer, lifetime);
+        using var pumpLifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var keepAliveTask = SendKeepAlivesAsync(response, keepAliveTimer, pumpLifetime);
 
         try
         {
-            await foreach (var msg in consumer.ConsumeAsync<byte[]>(cancellationToken: lifetime.Token))
+            await foreach (var msg in consumer.ConsumeAsync<byte[]>(cancellationToken: pumpLifetime.Token))
             {
                 if (msg.Data is null || msg.Data.Length == 0)
                     continue;
@@ -100,11 +95,12 @@ public static class AppealsSseEndpoint
                 if (!TryFilterByUser(msg.Data, userId, out var kind))
                     continue;
 
-                await WriteEventAsync(response, "appeal." + kind, msg.Data, lifetime.Token);
+                await WriteEventAsync(response, "appeal." + kind, msg.Data, pumpLifetime.Token);
             }
         }
         finally
         {
+            await pumpLifetime.CancelAsync();
             keepAliveTimer.Dispose();
             await keepAliveTask;
         }
@@ -164,38 +160,6 @@ public static class AppealsSseEndpoint
         }
         catch
         {
-            await lifetime.CancelAsync();
-        }
-    }
-
-    private static async Task RevalidateSessionLoopAsync(
-        IAuthService auth,
-        string token,
-        CancellationTokenSource lifetime,
-        ILogger logger)
-    {
-        try
-        {
-            using var timer = new PeriodicTimer(RevalidateInterval);
-            while (await timer.WaitForNextTickAsync(lifetime.Token))
-            {
-                auth.RemoveToken(token);
-                var result = await auth.VerifiedSubjectAsync("Bearer " + token, lifetime.Token);
-                if (result is AuthResult.Success) continue;
-
-                logger.LogInformation(
-                    "Appeals SSE revalidation failed: {Reason}",
-                    result is AuthResult.Failure f ? f.Reason : "unknown");
-                await lifetime.CancelAsync();
-                return;
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "SSE revalidation loop crashed");
             await lifetime.CancelAsync();
         }
     }
