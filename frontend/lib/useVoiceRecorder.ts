@@ -1,6 +1,5 @@
 "use client"
 
-
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 export type RecorderStatus = "idle" | "loading" | "recording" | "error"
@@ -52,7 +51,6 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
 }
 
 interface Options {
-  /** Коллбэк с финальным куском распознанного текста. Может вызываться несколько раз за сессию. */
   onTranscript: (text: string) => void
   onError?: (code: VoiceRecorderError, message: string) => void
   lang?: string
@@ -87,6 +85,11 @@ const ERROR_CODE_MAP: Record<string, VoiceRecorderError> = {
   network:               "network",
 }
 
+// В Edge/Opera GX webkitSpeechRecognition есть, но без доступа к Google
+// cloud SR.start() возвращается без throw, а onstart никогда не приходит —
+// кнопка зависает в loading. Таймаут выводит из этого состояния.
+const START_TIMEOUT_MS = 5_000
+
 export function useVoiceRecorder({
   onTranscript,
   onError,
@@ -102,51 +105,36 @@ export function useVoiceRecorder({
   )
 
   const recogRef = useRef<SpeechRecognitionLike | null>(null)
+  const startTimerRef = useRef<number | null>(null)
+
+  const clearStartTimer = useCallback(() => {
+    if (startTimerRef.current !== null) {
+      window.clearTimeout(startTimerRef.current)
+      startTimerRef.current = null
+    }
+  }, [])
 
   const fail = useCallback(
     (code: VoiceRecorderError, message: string) => {
+      clearStartTimer()
       setError(code)
       setStatus("error")
       onError?.(code, message)
       setTimeout(() => setStatus("idle"), 1500)
     },
-    [onError],
+    [onError, clearStartTimer],
   )
 
   const start = useCallback(async () => {
-    const log = (...args: unknown[]) => console.log("[voice]", ...args)
-
-    log("start() called", {
-      isSecureContext: typeof window !== "undefined" ? window.isSecureContext : "n/a",
-      hasMediaDevices: typeof navigator !== "undefined" && !!navigator.mediaDevices,
-      hasGetUserMedia:
-        typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia,
-      hasPermissionsAPI:
-        typeof navigator !== "undefined" && !!(navigator.permissions as unknown),
-      userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "n/a",
-      hasSpeechRecognition:
-        typeof window !== "undefined" &&
-        !!(window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition,
-      hasWebkitSpeechRecognition:
-        typeof window !== "undefined" &&
-        !!(window as unknown as { webkitSpeechRecognition?: unknown })
-          .webkitSpeechRecognition,
-    })
-
-    if (recogRef.current) {
-      log("already running, abort")
-      return
-    }
+    if (recogRef.current) return
 
     if (typeof window !== "undefined" && window.isSecureContext === false) {
-      log("insecure context — getUserMedia blocked by browser")
       fail("insecure_context", ERROR_MESSAGES.insecure_context)
       return
     }
 
     const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
-      log("no SpeechRecognition ctor")
       fail("unsupported", ERROR_MESSAGES.unsupported)
       return
     }
@@ -155,39 +143,26 @@ export function useVoiceRecorder({
     setInterimText("")
     setStatus("loading")
 
-    // КЛЮЧЕВОЙ МОМЕНТ: getUserMedia должен быть вызван СИНХРОННО в обработчике
-    // клика, до любых await — иначе iOS Safari теряет связку с user gesture и
-    // молча отклоняет доступ без показа prompt'а. То же помогает на Android
-    // Chrome, где prompt от webkitSpeechRecognition появляется не всегда.
-    // Поэтому permissions.query (опциональная оптимизация) теперь идёт ПОСЛЕ
-    // getUserMedia, а не до.
+    // getUserMedia должен быть вызван синхронно в обработчике клика, до любых
+    // await — иначе iOS Safari и часть Android Chrome теряют связку с
+    // user-gesture и молча отклоняют доступ без prompt'а.
     let gumPromise: Promise<MediaStream> | null = null
     if (navigator.mediaDevices?.getUserMedia) {
       try {
-        log("calling getUserMedia({audio:true}) synchronously…")
         gumPromise = navigator.mediaDevices.getUserMedia({ audio: true })
-      } catch (err) {
-        // Синхронный throw (редко, но бывает в некоторых WebView)
-        log("getUserMedia threw synchronously:", {
-          name: (err as Error)?.name,
-          message: (err as Error)?.message,
-        })
+      } catch {
         fail("permission_denied", ERROR_MESSAGES.permission_denied)
         return
       }
-    } else {
-      log("no getUserMedia available; will rely on SpeechRecognition prompt")
     }
 
     if (gumPromise) {
       try {
         const stream = await gumPromise
-        log("getUserMedia OK, tracks:", stream.getTracks().length)
         stream.getTracks().forEach((t) => t.stop())
       } catch (err) {
         const name = (err as DOMException)?.name
         const message = (err as DOMException)?.message
-        log("getUserMedia rejected:", { name, message })
         if (name === "NotAllowedError" || name === "SecurityError") {
           fail("permission_denied", ERROR_MESSAGES.permission_denied)
           return
@@ -208,7 +183,7 @@ export function useVoiceRecorder({
     rec.maxAlternatives = 1
 
     rec.onstart = () => {
-      log("SR.onstart")
+      clearStartTimer()
       setStatus("recording")
     }
 
@@ -228,15 +203,13 @@ export function useVoiceRecorder({
     }
 
     rec.onerror = (e) => {
-      log("SR.onerror:", { error: e.error, message: e.message })
       const code = ERROR_CODE_MAP[e.error] ?? "unknown"
-      // Тихий abort (user stopped) — не считаем ошибкой
       if (code === "aborted") return
       fail(code, ERROR_MESSAGES[code])
     }
 
     rec.onend = () => {
-      log("SR.onend")
+      clearStartTimer()
       recogRef.current = null
       setInterimText("")
       setStatus((prev) => (prev === "error" ? prev : "idle"))
@@ -244,25 +217,44 @@ export function useVoiceRecorder({
 
     recogRef.current = rec
     try {
-      log("calling SR.start()")
       rec.start()
-      log("SR.start() returned without throw")
+      startTimerRef.current = window.setTimeout(() => {
+        startTimerRef.current = null
+        if (recogRef.current !== rec) return
+        try { rec.abort() } catch {}
+        recogRef.current = null
+        fail("network", ERROR_MESSAGES.network)
+      }, START_TIMEOUT_MS)
     } catch (err) {
-      log("SR.start() threw:", {
-        name: (err as Error)?.name,
-        message: (err as Error)?.message,
-      })
       recogRef.current = null
       fail("unknown", (err as Error).message || "Не удалось запустить запись")
     }
-  }, [fail, lang, onTranscript])
+  }, [fail, lang, onTranscript, clearStartTimer])
 
   const stop = useCallback(() => {
-    recogRef.current?.stop()
-  }, [])
+    clearStartTimer()
+    const rec = recogRef.current
+    if (!rec) {
+      setInterimText("")
+      setStatus((prev) => (prev === "error" ? prev : "idle"))
+      return
+    }
+    try {
+      rec.stop()
+    } catch {
+      try { rec.abort() } catch {}
+      recogRef.current = null
+      setInterimText("")
+      setStatus((prev) => (prev === "error" ? prev : "idle"))
+    }
+  }, [clearStartTimer])
 
   useEffect(
     () => () => {
+      if (startTimerRef.current !== null) {
+        window.clearTimeout(startTimerRef.current)
+        startTimerRef.current = null
+      }
       recogRef.current?.abort()
       recogRef.current = null
     },

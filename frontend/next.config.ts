@@ -1,6 +1,7 @@
 import type { NextConfig } from "next"
 
 const GRAFANA_URL = process.env.GRAFANA_URL ?? "http://grafana:3000"
+const BACKEND_URL = process.env.BACKEND_URL ?? "http://backend:8080"
 
 const nextConfig: NextConfig = {
   // standalone собирает server.js + минимальные node_modules в .next/standalone
@@ -10,6 +11,7 @@ const nextConfig: NextConfig = {
       // /metrics без слеша → Grafana ожидает subpath '/metrics/', добавляем его в destination.
       { source: "/metrics", destination: `${GRAFANA_URL}/metrics/` },
       { source: "/metrics/:path*", destination: `${GRAFANA_URL}/metrics/:path*` },
+      { source: "/sse/:path*", destination: `${BACKEND_URL}/sse/:path*` },
     ]
   },
   async headers() {

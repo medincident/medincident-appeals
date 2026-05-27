@@ -59,7 +59,7 @@ public class AppealsProcessor(
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(DbSaveTimeout);
                 await repository.AddOutboxEntryAsync(
-                    OutboxEventBuilder.ErrorResult(appealId, ex.Message),
+                    OutboxEventBuilder.ErrorResult(appealId, submit.UserId, ex.Message),
                     cts.Token);
             }
             catch (Exception dbEx) when (dbEx is not OperationCanceledException)
@@ -74,7 +74,7 @@ public class AppealsProcessor(
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(DbSaveTimeout);
 
-            var outboxEntry = OutboxEventBuilder.SuccessResult(appealId, nlpResult);
+            var outboxEntry = OutboxEventBuilder.SuccessResult(appealId, submit.UserId, nlpResult);
 
             if (hasUser)
             {

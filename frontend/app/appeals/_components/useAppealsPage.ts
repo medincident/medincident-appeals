@@ -4,6 +4,7 @@ import * as React from "react"
 import { useSearchParams } from "next/navigation"
 
 import { useAppeals } from "@/domain/appeals/hooks"
+import { useAppealsRealtime } from "@/domain/appeals/useAppealsRealtime"
 import { usePendingAppeals } from "@/domain/appeals/usePendingAppeals"
 import type { AppealStatus } from "@/domain/appeals/types"
 
@@ -28,6 +29,8 @@ export function useAppealsPage() {
   const { appeals: rawAppeals, isLoading: swrIsLoading, isValidating } = useAppeals({
     search: searchQuery || undefined,
   })
+
+  useAppealsRealtime()
 
   const isLoading = swrIsLoading && rawAppeals.length === 0
 

@@ -1,4 +1,5 @@
 using AiMedincident.Backend.Features.Appeals;
+using AiMedincident.Backend.Features.Appeals.Realtime;
 using AiMedincident.Backend.Features.Audit;
 using AiMedincident.Backend.Features.Auth;
 using AiMedincident.Backend.Features.Health;
@@ -70,6 +71,8 @@ app.MapPrometheusScrapingEndpoint("/metrics");
 var api = app.MapGroup("/api/v1");
 api.MapAppealsEndpoints();
 api.MapAuthEndpoints();
+
+app.MapAppealsSseEndpoint();
 
 app.Logger.LogInformation("HTTP server listening on {Url} (nats={Nats})", appUrl, appOptions.NatsUrl);
 await app.RunAsync();

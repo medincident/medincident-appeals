@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using AiMedincident.Backend.Features.Appeals.Data;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
 using AiMedincident.Backend.Shared.Configuration;
@@ -14,6 +16,8 @@ public sealed class AppealsResubmitService(
     ILogger<AppealsResubmitService> logger) : BackgroundService
 {
     private const int BatchSize = 200;
+
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly TimeSpan _interval = TimeSpan.FromMinutes(options.Value.AppealsResubmitIntervalMinutes);
     private readonly TimeSpan _stale = TimeSpan.FromMinutes(options.Value.AppealsResubmitStaleMinutes);
@@ -69,9 +73,10 @@ public sealed class AppealsResubmitService(
 
             try
             {
+                var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(submit, JsonOptions));
                 await jetStream.PublishAsync(
                     AppealsStreamConfig.SubmitSubject,
-                    submit,
+                    payload,
                     opts: new NatsJSPubOpts { MsgId = appeal.Id.ToString() },
                     cancellationToken: ct);
             }

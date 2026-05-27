@@ -9,9 +9,9 @@ public static class OutboxEventBuilder
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public static OutboxEntry SuccessResult(Guid appealId, NlpAnalyzeResponse result)
+    public static OutboxEntry SuccessResult(Guid appealId, string? userId, NlpAnalyzeResponse result)
     {
-        var payload = new AppealResultPayload(appealId.ToString(), result);
+        var payload = new AppealResultPayload(appealId.ToString(), userId, result);
         return new OutboxEntry
         {
             Id = Guid.NewGuid(),
@@ -23,9 +23,9 @@ public static class OutboxEventBuilder
         };
     }
 
-    public static OutboxEntry ErrorResult(Guid appealId, string error)
+    public static OutboxEntry ErrorResult(Guid appealId, string? userId, string error)
     {
-        var payload = new AppealErrorResult(appealId.ToString(), error);
+        var payload = new AppealErrorResult(appealId.ToString(), userId, error);
         return new OutboxEntry
         {
             Id = Guid.NewGuid(),

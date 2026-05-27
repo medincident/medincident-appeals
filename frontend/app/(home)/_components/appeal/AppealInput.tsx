@@ -23,7 +23,6 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
   function AppealInput({ value, onChange, onSubmit, submitting }, ref) {
     const overLimit = value.length > MAX_CHARS
     const canSubmit = !!value.trim() && !submitting && !overLimit
-    const longText = value.length > 150 || value.split("\n").length > 2
 
     const voice = useVoiceRecorder({
       onTranscript: (text) => onChange(value ? `${value.trimEnd()} ${text}` : text),
@@ -101,18 +100,24 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-1">
+        <div className="flex items-center justify-between gap-2 px-1">
           <GuidePopover />
-          <div className={cn("flex gap-2", longText ? "flex-col-reverse items-end" : "items-center")}>
+          <div className="flex flex-wrap items-center justify-end gap-2 min-w-0">
             {voice.supported && (
               <Button
                 type="button"
                 size="sm"
-                variant={recording ? "destructive" : "secondary"}
+                variant={recording || loadingVoice ? "destructive" : "secondary"}
                 className="h-8 px-5 gap-1.5"
-                disabled={submitting || loadingVoice}
-                onClick={recording ? voice.stop : voice.start}
-                aria-label={recording ? "Остановить запись" : "Записать голосом"}
+                disabled={submitting}
+                onClick={recording || loadingVoice ? voice.stop : voice.start}
+                aria-label={
+                  loadingVoice
+                    ? "Отменить подключение"
+                    : recording
+                      ? "Остановить запись"
+                      : "Записать голосом"
+                }
                 suppressHydrationWarning
               >
                 {loadingVoice
@@ -120,7 +125,7 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
                   : recording
                     ? <Square className="h-3.5 w-3.5" />
                     : <Mic className="h-3.5 w-3.5" />}
-                {loadingVoice ? "Подключение…" : recording ? "Остановить" : "Диктовать"}
+                {loadingVoice ? "Отменить" : recording ? "Остановить" : "Диктовать"}
               </Button>
             )}
             <Button
