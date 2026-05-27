@@ -1,5 +1,6 @@
 using AiMedincident.Backend.Features.Appeals.Data;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
+using AiMedincident.Backend.Features.Appeals.Outbox;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Nlp.Data;
 
@@ -8,7 +9,6 @@ namespace AiMedincident.Backend.Features.Appeals;
 public class AppealsProcessor(
     NlpClient nlp,
     AppealsRepository repository,
-    AppealResultPublisher publisher,
     ILogger<AppealsProcessor> logger)
 {
     public static readonly TimeSpan DbSaveTimeout = TimeSpan.FromSeconds(5);
@@ -54,34 +54,42 @@ public class AppealsProcessor(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogError(ex, "NLP call failed (id={Id})", submit.Id);
-            await publisher.PublishErrorAsync(submit.Id, ex.Message, ct);
-            return new ProcessResult.NlpFailure(ex.Message);
-        }
-
-        if (hasUser)
-        {
             try
             {
                 using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 cts.CancelAfter(DbSaveTimeout);
-                var row = AppealRowBuilder.Build(submit, nlpResult);
-                await repository.UpsertAsync(row, cts.Token);
+                await repository.AddOutboxEntryAsync(
+                    OutboxEventBuilder.ErrorResult(appealId, ex.Message),
+                    cts.Token);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception dbEx) when (dbEx is not OperationCanceledException)
             {
-                logger.LogError(ex, "Postgres save failed, will retry (id={Id})", submit.Id);
-                return new ProcessResult.DbFailure(ex.Message);
+                logger.LogError(dbEx, "Failed to enqueue error to outbox (id={Id})", submit.Id);
             }
+            return new ProcessResult.NlpFailure(ex.Message);
         }
 
         try
         {
-            await publisher.PublishSuccessAsync(submit.Id, nlpResult, ct);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(DbSaveTimeout);
+
+            var outboxEntry = OutboxEventBuilder.SuccessResult(appealId, nlpResult);
+
+            if (hasUser)
+            {
+                var row = AppealRowBuilder.Build(submit, nlpResult);
+                await repository.UpsertWithOutboxAsync(row, outboxEntry, cts.Token);
+            }
+            else
+            {
+                await repository.AddOutboxEntryAsync(outboxEntry, cts.Token);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "Publish result failed, will retry (id={Id})", submit.Id);
-            return new ProcessResult.PublishFailure(ex.Message);
+            logger.LogError(ex, "Postgres save failed, will retry (id={Id})", submit.Id);
+            return new ProcessResult.DbFailure(ex.Message);
         }
 
         logger.LogInformation(

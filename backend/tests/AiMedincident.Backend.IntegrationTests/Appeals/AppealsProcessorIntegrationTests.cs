@@ -25,18 +25,16 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
     private AppDbContext _db = null!;
     private AppealsRepository _repo = null!;
     private FakeNlpClient _nlp = null!;
-    private RecordingPublisher _publisher = null!;
     private AppealsProcessor _processor = null!;
 
     public async ValueTask InitializeAsync()
     {
         _db = fixture.CreateDbContext();
         await DatabaseInitialization.EnsureSchemaAsync(_db, attempts: 3, delay: TimeSpan.FromMilliseconds(500));
-        await _db.Database.ExecuteSqlRawAsync("TRUNCATE appeals");
+        await _db.Database.ExecuteSqlRawAsync("TRUNCATE appeals, outbox, appeals_dlq");
         _repo = new AppealsRepository(_db);
         _nlp = new FakeNlpClient();
-        _publisher = new RecordingPublisher();
-        _processor = new AppealsProcessor(_nlp, _repo, _publisher, NullLogger<AppealsProcessor>.Instance);
+        _processor = new AppealsProcessor(_nlp, _repo, NullLogger<AppealsProcessor>.Instance);
     }
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();
@@ -70,7 +68,7 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
     }
 
     [Fact]
-    public async Task Returns_nlp_failure_and_publishes_error_when_nlp_throws()
+    public async Task Returns_nlp_failure_and_writes_error_to_outbox_when_nlp_throws()
     {
         _nlp.Exception = new NlpException("503");
         var submit = ValidSubmit();
@@ -78,8 +76,12 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
         var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
 
         result.Should().BeOfType<ProcessResult.NlpFailure>();
-        _publisher.Errors.Should().ContainSingle().Which.Should().Be((submit.Id, "503"));
-        _publisher.Successes.Should().BeEmpty();
+        var outboxRows = await _db.Set<OutboxEntry>().AsNoTracking().ToListAsync(TestContext.Current.CancellationToken);
+        outboxRows.Should().ContainSingle();
+        outboxRows[0].AggregateId.Should().Be(Guid.Parse(submit.Id));
+        outboxRows[0].Subject.Should().Be($"appeals.result.{submit.Id}");
+        outboxRows[0].MsgId.Should().StartWith($"error-{submit.Id}-");
+        outboxRows[0].PublishedAt.Should().BeNull();
     }
 
     [Fact]
@@ -92,16 +94,15 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
             .UseNpgsql("Host=127.0.0.1;Port=1;Username=x;Password=x;Database=x;Timeout=1")
             .Options);
         _repo = new AppealsRepository(_db);
-        _processor = new AppealsProcessor(_nlp, _repo, _publisher, NullLogger<AppealsProcessor>.Instance);
+        _processor = new AppealsProcessor(_nlp, _repo, NullLogger<AppealsProcessor>.Instance);
 
         var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
 
         result.Should().BeOfType<ProcessResult.DbFailure>();
-        _publisher.Successes.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Skips_db_save_when_user_id_missing()
+    public async Task Skips_db_appeal_save_when_user_id_missing_but_writes_outbox()
     {
         _nlp.Response = new NlpAnalyzeResponse();
         var submit = ValidSubmit(userId: null);
@@ -110,23 +111,13 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
 
         result.Should().BeOfType<ProcessResult.Success>();
         (await _db.Set<Appeal>().CountAsync(TestContext.Current.CancellationToken)).Should().Be(0);
-        _publisher.Successes.Should().ContainSingle().Which.id.Should().Be(submit.Id);
+        var outbox = await _db.Set<OutboxEntry>().AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        outbox.Subject.Should().Be($"appeals.result.{submit.Id}");
+        outbox.MsgId.Should().Be($"result-{submit.Id}");
     }
 
     [Fact]
-    public async Task Returns_publish_failure_when_success_publish_throws()
-    {
-        _nlp.Response = new NlpAnalyzeResponse();
-        _publisher.ThrowOnSuccess = new InvalidOperationException("nats down");
-        var submit = ValidSubmit();
-
-        var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
-
-        result.Should().BeOfType<ProcessResult.PublishFailure>();
-    }
-
-    [Fact]
-    public async Task Success_path_saves_row_and_publishes()
+    public async Task Success_path_saves_row_and_outbox_in_one_transaction()
     {
         _nlp.Response = new NlpAnalyzeResponse { IsImportant = true, FormalizedText = "f" };
         var submit = ValidSubmit();
@@ -134,9 +125,15 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
         var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
 
         result.Should().BeOfType<ProcessResult.Success>();
-        var saved = await _db.Set<Appeal>().SingleAsync(a => a.Id == Guid.Parse(submit.Id), TestContext.Current.CancellationToken);
+        var saved = await _db.Set<Appeal>().AsNoTracking().SingleAsync(a => a.Id == Guid.Parse(submit.Id), TestContext.Current.CancellationToken);
         saved.FormalizedText.Should().Be("f");
-        _publisher.Successes.Should().ContainSingle().Which.id.Should().Be(submit.Id);
+
+        var outbox = await _db.Set<OutboxEntry>().AsNoTracking().SingleAsync(TestContext.Current.CancellationToken);
+        outbox.AggregateId.Should().Be(saved.Id);
+        outbox.Subject.Should().Be($"appeals.result.{submit.Id}");
+        outbox.MsgId.Should().Be($"result-{submit.Id}");
+        outbox.PublishedAt.Should().BeNull();
+        outbox.PayloadJson.Should().Contain(submit.Id);
     }
 
     private sealed class FakeNlpClient : NlpClient
@@ -151,28 +148,6 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
         {
             CallCount++;
             return Exception is null ? Task.FromResult(Response) : Task.FromException<NlpAnalyzeResponse>(Exception);
-        }
-    }
-
-    private sealed class RecordingPublisher : AppealResultPublisher
-    {
-        public List<(string id, NlpAnalyzeResponse result)> Successes { get; } = [];
-        public List<(string id, string error)> Errors { get; } = [];
-        public Exception? ThrowOnSuccess { get; set; }
-
-        public RecordingPublisher() : base(null!, null!) { }
-
-        public override Task PublishSuccessAsync(string appealId, NlpAnalyzeResponse result, CancellationToken ct = default)
-        {
-            if (ThrowOnSuccess is not null) return Task.FromException(ThrowOnSuccess);
-            Successes.Add((appealId, result));
-            return Task.CompletedTask;
-        }
-
-        public override Task PublishErrorAsync(string appealId, string error, CancellationToken ct = default)
-        {
-            Errors.Add((appealId, error));
-            return Task.CompletedTask;
         }
     }
 }

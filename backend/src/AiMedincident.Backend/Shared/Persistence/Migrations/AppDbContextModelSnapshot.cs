@@ -155,6 +155,70 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                     b.ToTable("appeals_dlq", (string)null);
                 });
 
+            modelBuilder.Entity("AiMedincident.Backend.Features.Appeals.Data.Db.OutboxEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("AggregateId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("aggregate_id");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<DateTimeOffset?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_attempt_at");
+
+                    b.Property<string>("LastError")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("MsgId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("msg_id");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AggregateId")
+                        .HasDatabaseName("outbox_aggregate_idx");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("outbox_unpublished_idx")
+                        .HasFilter("\"published_at\" IS NULL");
+
+                    b.HasIndex("PublishedAt")
+                        .HasDatabaseName("outbox_published_at_idx")
+                        .HasFilter("\"published_at\" IS NOT NULL");
+
+                    b.ToTable("outbox", (string)null);
+                });
+
             modelBuilder.Entity("AiMedincident.Backend.Features.Audit.AuditEntry", b =>
                 {
                     b.Property<long>("Id")

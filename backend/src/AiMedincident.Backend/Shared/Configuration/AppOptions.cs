@@ -18,6 +18,9 @@ public sealed class AppOptions
     [Range(1, 36500)]
     public int AppealLastsDays { get; set; } = 365;
 
+    [Range(1, 365)]
+    public int OutboxRetentionDays { get; set; } = 7;
+
     [Range(1, 1440)]
     public int AppealsResubmitIntervalMinutes { get; set; } = 5;
 

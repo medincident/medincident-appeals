@@ -8,7 +8,10 @@ public sealed class AppealsRepository(AppDbContext db)
     public const int DefaultListLimit = 200;
     public const int MaxListLimit = 500;
 
-    public async Task UpsertAsync(Appeal appeal, CancellationToken ct = default)
+    public async Task UpsertAsync(Appeal appeal, CancellationToken ct = default) =>
+        await UpsertWithOutboxAsync(appeal, outbox: null, ct);
+
+    public async Task UpsertWithOutboxAsync(Appeal appeal, OutboxEntry? outbox, CancellationToken ct = default)
     {
         var existing = await db.Set<Appeal>().FirstOrDefaultAsync(a => a.Id == appeal.Id, ct);
 
@@ -28,6 +31,17 @@ public sealed class AppealsRepository(AppDbContext db)
             existing.Status = appeal.Status;
         }
 
+        if (outbox is not null)
+        {
+            db.Add(outbox);
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task AddOutboxEntryAsync(OutboxEntry entry, CancellationToken ct = default)
+    {
+        db.Add(entry);
         await db.SaveChangesAsync(ct);
     }
 

@@ -29,20 +29,23 @@ public sealed class AppealRetentionService(
     {
         try
         {
-            var days = options.Value.AppealLastsDays;
-            var cutoff = DateTimeOffset.UtcNow.AddDays(-days);
-
             using var scope = scopeFactory.CreateScope();
-            var repo = scope.ServiceProvider.GetRequiredService<AppealsRepository>();
-            var deleted = await repo.DeleteOlderThanAsync(cutoff, ct);
+            var appealsRepo = scope.ServiceProvider.GetRequiredService<AppealsRepository>();
+            var outboxRepo = scope.ServiceProvider.GetRequiredService<OutboxRepository>();
+
+            var appealsCutoff = DateTimeOffset.UtcNow.AddDays(-options.Value.AppealLastsDays);
+            var deletedAppeals = await appealsRepo.DeleteOlderThanAsync(appealsCutoff, ct);
+
+            var outboxCutoff = DateTimeOffset.UtcNow.AddDays(-options.Value.OutboxRetentionDays);
+            var deletedOutbox = await outboxRepo.DeletePublishedOlderThanAsync(outboxCutoff, ct);
 
             logger.LogInformation(
-                "appeal retention sweep: cutoff={Cutoff:O}, deleted={Deleted}",
-                cutoff, deleted);
+                "retention sweep: appeals(cutoff={AppealsCutoff:O}, deleted={DeletedAppeals}), outbox(cutoff={OutboxCutoff:O}, deleted={DeletedOutbox})",
+                appealsCutoff, deletedAppeals, outboxCutoff, deletedOutbox);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "appeal retention sweep failed");
+            logger.LogError(ex, "retention sweep failed");
         }
     }
 }
