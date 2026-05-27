@@ -21,6 +21,7 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                 .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_dlq_failure_type", new[] { "db_failure", "exceeded_max_deliver", "invalid_message", "nlp_failure", "publish_failure" });
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_status", new[] { "pending", "processed", "processing", "rejected", "resolved" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
@@ -96,6 +97,62 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                         .HasDatabaseName("appeals_user_created_idx");
 
                     b.ToTable("appeals", (string)null);
+                });
+
+            modelBuilder.Entity("AiMedincident.Backend.Features.Appeals.Data.Db.AppealDlqEntry", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<int>("DeliveryCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("delivery_count");
+
+                    b.Property<DateTimeOffset>("FailedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("failed_at")
+                        .HasDefaultValueSql("NOW()");
+
+                    b.Property<DlqFailureType>("FailureType")
+                        .HasColumnType("appeal_dlq_failure_type")
+                        .HasColumnName("failure_type");
+
+                    b.Property<string>("LastError")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
+
+                    b.Property<string>("PayloadJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb")
+                        .HasColumnName("payload_json");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("text");
+
+                    b.Property<string>("UserId")
+                        .HasColumnType("text")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FailedAt")
+                        .IsDescending()
+                        .HasDatabaseName("appeals_dlq_failed_at_idx");
+
+                    b.HasIndex("FailureType")
+                        .HasDatabaseName("appeals_dlq_failure_type_idx");
+
+                    b.ToTable("appeals_dlq", (string)null);
                 });
 
             modelBuilder.Entity("AiMedincident.Backend.Features.Audit.AuditEntry", b =>

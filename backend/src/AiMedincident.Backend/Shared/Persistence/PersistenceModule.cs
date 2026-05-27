@@ -13,10 +13,13 @@ public static class PersistenceModule
 
         services.AddNpgsqlDataSource(connectionString, static b => b
             .EnableDynamicJson()
-            .MapEnum<AppealStatus>("appeal_status"));
+            .MapEnum<AppealStatus>("appeal_status")
+            .MapEnum<DlqFailureType>("appeal_dlq_failure_type"));
 
         services.AddDbContext<AppDbContext>(static (sp, o) =>
-            o.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>(), npg => npg.MapEnum<AppealStatus>("appeal_status")));
+            o.UseNpgsql(sp.GetRequiredService<NpgsqlDataSource>(), npg => npg
+                .MapEnum<AppealStatus>("appeal_status")
+                .MapEnum<DlqFailureType>("appeal_dlq_failure_type")));
 
         return services;
     }

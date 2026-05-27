@@ -72,7 +72,7 @@ public sealed class AppealsResubmitService(
                 await jetStream.PublishAsync(
                     AppealsStreamConfig.SubmitSubject,
                     submit,
-                    opts: new NatsJSPubOpts { MsgId = $"resubmit-{appeal.Id}" },
+                    opts: new NatsJSPubOpts { MsgId = appeal.Id.ToString() },
                     cancellationToken: ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)

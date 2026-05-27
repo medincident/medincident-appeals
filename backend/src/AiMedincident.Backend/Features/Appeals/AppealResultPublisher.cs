@@ -14,6 +14,7 @@ public class AppealResultPublisher(
     public virtual async Task PublishSuccessAsync(string appealId, NlpAnalyzeResponse result, CancellationToken ct = default)
     {
         var payload = new AppealResultPayload(appealId, result);
+        // result- prefix mandatory: submit MsgId=appealId, same stream DuplicateWindow.
         var opts = new NatsJSPubOpts { MsgId = $"result-{appealId}" };
         await jetStream.PublishAsync(
             AppealsStreamConfig.ResultSubject(appealId),

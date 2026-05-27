@@ -25,7 +25,8 @@ type GlobalWithNats = typeof globalThis & {
   [GLOBAL_KEY]?: Promise<NatsState>
 }
 
-const DUPLICATE_WINDOW_NS = 30 * 60 * 1_000_000_000 // 30m
+const DUPLICATE_WINDOW_NS = 60 * 60 * 1_000_000_000 // 1h
+const MAX_MSG_SIZE = 16 * 1024
 
 async function ensureAppealsStream(nc: NatsConnection): Promise<void> {
   const jsm = await nc.jetstreamManager()
@@ -35,12 +36,16 @@ async function ensureAppealsStream(nc: NatsConnection): Promise<void> {
     storage: StorageType.File,
     retention: RetentionPolicy.Limits,
     max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7d
+    max_msg_size: MAX_MSG_SIZE,
     duplicate_window: DUPLICATE_WINDOW_NS,
     num_replicas: 1,
   }
   try {
     const info = await jsm.streams.info(APPEALS_STREAM)
-    if (info.config.duplicate_window !== DUPLICATE_WINDOW_NS) {
+    const needsUpdate =
+      info.config.duplicate_window !== DUPLICATE_WINDOW_NS ||
+      info.config.max_msg_size !== MAX_MSG_SIZE
+    if (needsUpdate) {
       await jsm.streams.update(APPEALS_STREAM, baseConfig)
     }
     return

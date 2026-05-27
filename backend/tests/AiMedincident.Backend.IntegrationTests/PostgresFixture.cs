@@ -21,10 +21,13 @@ public sealed class PostgresFixture : IAsyncLifetime
         var dataSource = new NpgsqlDataSourceBuilder(ConnectionString)
             .EnableDynamicJson()
             .MapEnum<AppealStatus>("appeal_status")
+            .MapEnum<DlqFailureType>("appeal_dlq_failure_type")
             .Build();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(dataSource, npg => npg.MapEnum<AppealStatus>("appeal_status"))
+            .UseNpgsql(dataSource, npg => npg
+                .MapEnum<AppealStatus>("appeal_status")
+                .MapEnum<DlqFailureType>("appeal_dlq_failure_type"))
             .Options;
         return new AppDbContext(options);
     }

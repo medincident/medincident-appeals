@@ -72,7 +72,7 @@ async function enqueueViaNats(
     created_at: new Date().toISOString(),
   }
   await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
-    msgID: `submit-${idempotencyKey}`,
+    msgID: idempotencyKey,
     timeout: 5_000,
   })
 }

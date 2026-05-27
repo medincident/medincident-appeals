@@ -24,10 +24,13 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
         var dataSource = new NpgsqlDataSourceBuilder(connString)
             .EnableDynamicJson()
             .MapEnum<AppealStatus>("appeal_status")
+            .MapEnum<DlqFailureType>("appeal_dlq_failure_type")
             .Build();
 
         var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(dataSource, o => o.MapEnum<AppealStatus>("appeal_status"))
+            .UseNpgsql(dataSource, o => o
+                .MapEnum<AppealStatus>("appeal_status")
+                .MapEnum<DlqFailureType>("appeal_dlq_failure_type"))
             .Options;
 
         return new AppDbContext(options);

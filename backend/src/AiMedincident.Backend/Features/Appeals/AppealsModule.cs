@@ -8,6 +8,7 @@ public static class AppealsModule
     public static IServiceCollection AddAppeals(this IServiceCollection services)
     {
         services.AddScoped<AppealsRepository>();
+        services.AddScoped<AppealsDlqRepository>();
         services.AddScoped<AppealsProcessor>();
         services.AddSingleton<AppealResultPublisher>();
         services.AddSingleton<AppealsConsumer>();

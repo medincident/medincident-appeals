@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AiMedincident.Backend.Features.Appeals.Data;
+using AiMedincident.Backend.Features.Appeals.Data.Db;
 using NATS.Client.JetStream;
 
 namespace AiMedincident.Backend.Features.Appeals;
@@ -9,9 +10,8 @@ public sealed class AppealsConsumer(
     IServiceScopeFactory scopeFactory,
     ILogger<AppealsConsumer> logger) : BackgroundService
 {
-    private static readonly TimeSpan NlpRetryDelay = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan DbRetryDelay = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan PublishRetryDelay = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(60);
+
     private volatile bool _running;
 
     public bool IsActive => _running;
@@ -49,6 +49,8 @@ public sealed class AppealsConsumer(
 
     private async Task HandleAsync(NatsJSMsg<byte[]> msg, CancellationToken ct)
     {
+        var deliveryCount = (int)(msg.Metadata?.NumDelivered ?? 1);
+
         AppealSubmit? submit;
         try
         {
@@ -57,6 +59,7 @@ public sealed class AppealsConsumer(
         catch (JsonException ex)
         {
             logger.LogError(ex, "Invalid JSON in appeals.submit, dropping");
+            await TryWriteDlqRawAsync(msg.Data, DlqFailureType.InvalidMessage, $"invalid json: {ex.Message}", deliveryCount, ct);
             await msg.AckTerminateAsync(cancellationToken: ct);
             return;
         }
@@ -64,31 +67,163 @@ public sealed class AppealsConsumer(
         if (submit is null || string.IsNullOrEmpty(submit.Id) || string.IsNullOrEmpty(submit.Text))
         {
             logger.LogError("Missing id/text in appeals.submit, dropping");
+            await TryWriteDlqRawAsync(msg.Data, DlqFailureType.InvalidMessage, "missing id/text", deliveryCount, ct);
             await msg.AckTerminateAsync(cancellationToken: ct);
             return;
         }
 
-        using var scope = scopeFactory.CreateScope();
-        var processor = scope.ServiceProvider.GetRequiredService<AppealsProcessor>();
-        var result = await processor.ProcessAsync(submit, ct);
+        using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var heartbeatTask = RunHeartbeatAsync(msg, heartbeatCts.Token);
+
+        ProcessResult result;
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var processor = scope.ServiceProvider.GetRequiredService<AppealsProcessor>();
+            result = await processor.ProcessAsync(submit, ct);
+        }
+        finally
+        {
+            await heartbeatCts.CancelAsync();
+            await heartbeatTask;
+        }
 
         switch (result)
         {
             case ProcessResult.Success:
                 await msg.AckAsync(cancellationToken: ct);
-                break;
-            case ProcessResult.InvalidMessage:
+                return;
+
+            case ProcessResult.InvalidMessage inv:
+                await TryWriteDlqAsync(submit, DlqFailureType.InvalidMessage, inv.Reason, deliveryCount, ct);
                 await msg.AckTerminateAsync(cancellationToken: ct);
-                break;
-            case ProcessResult.NlpFailure:
-                await msg.NakAsync(delay: NlpRetryDelay, cancellationToken: ct);
-                break;
-            case ProcessResult.DbFailure:
-                await msg.NakAsync(delay: DbRetryDelay, cancellationToken: ct);
-                break;
-            case ProcessResult.PublishFailure:
-                await msg.NakAsync(delay: PublishRetryDelay, cancellationToken: ct);
-                break;
+                return;
+
+            case ProcessResult.Failure failure:
+                var failureType = failure switch
+                {
+                    ProcessResult.NlpFailure => DlqFailureType.NlpFailure,
+                    ProcessResult.DbFailure => DlqFailureType.DbFailure,
+                    ProcessResult.PublishFailure => DlqFailureType.PublishFailure,
+                    _ => DlqFailureType.NlpFailure,
+                };
+
+                if (deliveryCount >= AppealsStreamConfig.MaxDeliver)
+                {
+                    await TryWriteDlqAsync(submit, DlqFailureType.ExceededMaxDeliver, failure.Reason, deliveryCount, ct);
+                    await msg.AckTerminateAsync(cancellationToken: ct);
+                    logger.LogWarning(
+                        "Appeal moved to DLQ after {Count} deliveries (id={Id}, type={Type}, reason={Reason})",
+                        deliveryCount, submit.Id, failureType, failure.Reason);
+                    return;
+                }
+
+                var delay = ComputeBackoff(deliveryCount);
+                logger.LogInformation(
+                    "Appeal nak (id={Id}, attempt={Attempt}/{Max}, delay={Delay}s, reason={Reason})",
+                    submit.Id, deliveryCount, AppealsStreamConfig.MaxDeliver, delay.TotalSeconds, failure.Reason);
+                await msg.NakAsync(delay: delay, cancellationToken: ct);
+                return;
         }
     }
+
+    public static TimeSpan ComputeBackoff(int deliveryCount, Random? rng = null)
+    {
+        if (deliveryCount < 1) deliveryCount = 1;
+        var baseSeconds = Math.Min(180.0, 2.0 * Math.Pow(2, deliveryCount - 1));
+        var jitter = 1.0 + ((rng ?? Random.Shared).NextDouble() * 0.6 - 0.3);
+        return TimeSpan.FromSeconds(baseSeconds * jitter);
+    }
+
+    private async Task RunHeartbeatAsync(NatsJSMsg<byte[]> msg, CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(HeartbeatInterval);
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                await msg.AckProgressAsync(cancellationToken: ct);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "heartbeat failed");
+        }
+    }
+
+    private async Task TryWriteDlqAsync(
+        AppealSubmit submit,
+        DlqFailureType failureType,
+        string reason,
+        int deliveryCount,
+        CancellationToken ct)
+    {
+        if (!Guid.TryParse(submit.Id, out var id))
+            return;
+
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var dlq = scope.ServiceProvider.GetRequiredService<AppealsDlqRepository>();
+
+            var entry = new AppealDlqEntry
+            {
+                Id = id,
+                UserId = submit.UserId,
+                Text = submit.Text,
+                CreatedAt = AppealRowBuilder.ParseCreatedAt(submit.CreatedAt),
+                FailedAt = DateTimeOffset.UtcNow,
+                DeliveryCount = deliveryCount,
+                LastError = Truncate(reason, 2000),
+                FailureType = failureType,
+                PayloadJson = JsonSerializer.Serialize(submit),
+            };
+
+            await dlq.UpsertAsync(entry, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to write DLQ entry (id={Id})", submit.Id);
+        }
+    }
+
+    private async Task TryWriteDlqRawAsync(
+        byte[]? rawData,
+        DlqFailureType failureType,
+        string reason,
+        int deliveryCount,
+        CancellationToken ct)
+    {
+        try
+        {
+            using var scope = scopeFactory.CreateScope();
+            var dlq = scope.ServiceProvider.GetRequiredService<AppealsDlqRepository>();
+
+            var raw = rawData is null ? "" : System.Text.Encoding.UTF8.GetString(rawData);
+            var entry = new AppealDlqEntry
+            {
+                Id = Guid.NewGuid(),
+                UserId = null,
+                Text = Truncate(raw, 16 * 1024),
+                CreatedAt = DateTimeOffset.UtcNow,
+                FailedAt = DateTimeOffset.UtcNow,
+                DeliveryCount = deliveryCount,
+                LastError = Truncate(reason, 2000),
+                FailureType = failureType,
+                PayloadJson = "null",
+            };
+
+            await dlq.UpsertAsync(entry, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to write raw DLQ entry");
+        }
+    }
+
+    private static string Truncate(string? value, int maxLength) =>
+        string.IsNullOrEmpty(value) || value.Length <= maxLength ? value ?? "" : value[..maxLength];
 }
