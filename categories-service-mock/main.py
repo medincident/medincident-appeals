@@ -30,7 +30,7 @@ from nats.js import JetStreamContext
 from nats.js.api import KeyValueConfig
 from nats.js.errors import BucketNotFoundError
 
-from categories import CATEGORIES
+from mock_categories import CATEGORIES
 
 logging.basicConfig(
     level=logging.INFO,
