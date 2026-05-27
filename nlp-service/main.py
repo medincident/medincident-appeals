@@ -37,6 +37,9 @@ processor = TextProcessor()
 matcher = CategoryMatcher()
 categories_cache: list[dict] = []
 
+_nc = None
+_analyze_sub = None
+
 
 def _apply_categories(raw: list[dict]) -> None:
     global categories_cache
@@ -47,18 +50,17 @@ def _apply_categories(raw: list[dict]) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _nc, _analyze_sub
     logger.info("Loading NLP models...")
     classifier.load()
     processor.load()
     matcher.load()
     logger.info("All models loaded")
 
-    nc = None
     watcher_task = None
-    analyze_sub = None
     try:
-        nc = await connect_with_retry(NATS_URL)
-        js = nc.jetstream()
+        _nc = await connect_with_retry(NATS_URL)
+        js = _nc.jetstream()
 
         for _ in range(20):
             if await load_categories(js, KV_BUCKET, KV_KEY, _apply_categories):
@@ -71,8 +73,8 @@ async def lifespan(app: FastAPI):
             watch_categories(js, KV_BUCKET, KV_KEY, _apply_categories)
         )
 
-        analyze_sub = await subscribe_analyze(
-            nc,
+        _analyze_sub = await subscribe_analyze(
+            _nc,
             classifier,
             processor,
             matcher,
@@ -86,12 +88,12 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    if analyze_sub:
-        await analyze_sub.unsubscribe()
+    if _analyze_sub:
+        await _analyze_sub.unsubscribe()
     if watcher_task:
         watcher_task.cancel()
-    if nc:
-        await nc.drain()
+    if _nc:
+        await _nc.drain()
 
 
 app = FastAPI(title="NLP Service", version="0.1.0", lifespan=lifespan)
@@ -146,8 +148,19 @@ async def analyze(request: AnalyzeRequest):
 
 @app.get("/health")
 async def health():
-    return {
-        "status": "ok",
+    nats_connected = _nc is not None and _nc.is_connected
+    analyze_subscribed = _analyze_sub is not None
+    models_loaded = (
+        classifier.model is not None
+        and processor.model is not None
+        and matcher.model is not None
+    )
+    healthy = nats_connected and analyze_subscribed and models_loaded
+
+    payload = {
+        "status": "ok" if healthy else "degraded",
+        "nats_connected": nats_connected,
+        "analyze_subscribed": analyze_subscribed,
         "models": {
             "classifier": {
                 "loaded": classifier.model is not None,
@@ -164,6 +177,7 @@ async def health():
         },
         "categories_cached": len(categories_cache),
     }
+    return JSONResponse(payload, status_code=200 if healthy else 503)
 
 
 @app.get("/categories")

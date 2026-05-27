@@ -13,6 +13,8 @@ dependencies = [
     "llama-cpp-python>=0.3.2",
     "outlines>=0.1.0",
     "huggingface-hub>=0.26.0",
+    "prometheus-client>=0.20.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
 ]
 
 [project.optional-dependencies]

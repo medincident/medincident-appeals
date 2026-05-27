@@ -7,10 +7,20 @@ scrape_configs:
     static_configs:
       - targets: ["localhost:9090"]
 
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8080"]
+
   - job_name: nlp-service
     metrics_path: /metrics
     static_configs:
       - targets: ["nlp-service:8000"]
+
+  - job_name: llm-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["llm-service:11434"]
 
   # Scrape-эндпоинт на frontend перенесён на /api/metrics, чтобы /metrics отдал
   # Grafana (Next.js rewrite'ит /metrics/* в grafana:3000).

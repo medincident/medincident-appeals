@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import logging
@@ -23,7 +22,9 @@ def _to_response_payload(result: dict) -> dict:
     }
 
 
-async def subscribe_analyze(nc, client, cache, run_analyze_fn):
+async def subscribe_analyze(nc, client, cache, run_analyze_fn,
+                            pipeline_duration_seconds=None,
+                            pipeline_requests_total=None):
     async def handle(msg):
         if not msg.reply:
             logger.warning("llm.analyze: msg without reply inbox, dropping")
@@ -38,14 +39,27 @@ async def subscribe_analyze(nc, client, cache, run_analyze_fn):
 
             categories: list[dict[str, Any]] = cache.snapshot()
 
+            timer_ctx = pipeline_duration_seconds.time() if pipeline_duration_seconds else None
+            if timer_ctx:
+                timer_ctx.__enter__()
             try:
-                result = await run_analyze_fn(client, text, categories)
-            except Exception as exc:
-                logger.exception("pipeline failed for llm.analyze")
-                await msg.respond(
-                    b"", headers={ERROR_HEADER: f"pipeline error: {type(exc).__name__}"}
-                )
-                return
+                try:
+                    result = await run_analyze_fn(client, text, categories)
+                except Exception as exc:
+                    logger.exception("pipeline failed for llm.analyze")
+                    if pipeline_requests_total:
+                        pipeline_requests_total.labels(outcome="error").inc()
+                    await msg.respond(
+                        b"", headers={ERROR_HEADER: f"pipeline error: {type(exc).__name__}"}
+                    )
+                    return
+            finally:
+                if timer_ctx:
+                    timer_ctx.__exit__(None, None, None)
+
+            outcome = "important" if result.get("is_important") else "not_important"
+            if pipeline_requests_total:
+                pipeline_requests_total.labels(outcome=outcome).inc()
 
             response = _to_response_payload(result)
             await msg.respond(json.dumps(response).encode())

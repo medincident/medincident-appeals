@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AiMedincident.Backend.Features.Nlp.Data;
+using AiMedincident.Backend.Features.Nlp.Metrics;
 using NATS.Client.Core;
 using Polly;
 using Polly.CircuitBreaker;
@@ -20,15 +22,18 @@ public class NlpClient : IAnalyzeClient
     private readonly INatsConnection _nats;
     private readonly IHostEnvironment _env;
     private readonly ResiliencePipeline<byte[]> _pipeline;
+    private readonly AnalyzeMetrics? _metrics;
 
     public NlpClient(
         INatsConnection nats,
         IHostEnvironment env,
-        ResiliencePipelineProvider<string> pipelineProvider)
+        ResiliencePipelineProvider<string> pipelineProvider,
+        AnalyzeMetrics metrics)
     {
         _nats = nats;
         _env = env;
         _pipeline = pipelineProvider.GetPipeline<byte[]>(NlpResiliencePipeline.PipelineKey);
+        _metrics = metrics;
     }
 
     protected NlpClient(INatsConnection nats, IHostEnvironment env)
@@ -36,6 +41,7 @@ public class NlpClient : IAnalyzeClient
         _nats = nats;
         _env = env;
         _pipeline = ResiliencePipeline<byte[]>.Empty;
+        _metrics = null;
     }
 
     internal NlpClient(INatsConnection nats, IHostEnvironment env, ResiliencePipeline<byte[]> pipeline)
@@ -43,6 +49,7 @@ public class NlpClient : IAnalyzeClient
         _nats = nats;
         _env = env;
         _pipeline = pipeline;
+        _metrics = null;
     }
 
     public virtual async Task<NlpAnalyzeResponse> AnalyzeAsync(string text, CancellationToken ct = default)
@@ -50,6 +57,8 @@ public class NlpClient : IAnalyzeClient
         ArgumentException.ThrowIfNullOrEmpty(text);
 
         var requestBytes = JsonSerializer.SerializeToUtf8Bytes(new AnalyzeRequest(text), JsonOptions);
+        var sw = Stopwatch.StartNew();
+        string outcome;
 
         byte[] replyBytes;
         try
@@ -57,19 +66,33 @@ public class NlpClient : IAnalyzeClient
             replyBytes = await _pipeline.ExecuteAsync(
                 async token => await CallNatsAsync(requestBytes, token),
                 ct);
+            outcome = AnalyzeMetrics.OutcomeSuccess;
         }
         catch (BrokenCircuitException ex)
         {
+            outcome = AnalyzeMetrics.OutcomeCircuitOpen;
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientNlp, outcome, sw.Elapsed.TotalSeconds);
             throw new NlpCircuitOpenException("nlp-service circuit open", ex);
         }
         catch (RateLimiterRejectedException ex)
         {
+            outcome = AnalyzeMetrics.OutcomeBulkheadReject;
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientNlp, outcome, sw.Elapsed.TotalSeconds);
             throw new NlpBulkheadRejectedException("nlp-service over capacity", ex);
         }
         catch (TimeoutRejectedException ex)
         {
+            outcome = AnalyzeMetrics.OutcomeTimeout;
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientNlp, outcome, sw.Elapsed.TotalSeconds);
             throw new NlpTimeoutException("nlp-service timeout", ex);
         }
+        catch (NlpException)
+        {
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientNlp, AnalyzeMetrics.OutcomeError, sw.Elapsed.TotalSeconds);
+            throw;
+        }
+
+        _metrics?.RecordRequest(AnalyzeMetrics.ClientNlp, outcome, sw.Elapsed.TotalSeconds);
 
         var result = JsonSerializer.Deserialize<NlpAnalyzeResponse>(replyBytes, JsonOptions);
         return result ?? throw new NlpException("nlp-service returned null");

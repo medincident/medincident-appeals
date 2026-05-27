@@ -146,7 +146,7 @@ services:
     #           capabilities: [gpu]
     healthcheck:
       <<: *default-healthcheck
-      test: ["CMD", "curl", "-sf", "http://localhost:11434/"]
+      test: ["CMD", "curl", "-sf", "http://localhost:11434/health"]
       start_period: 180s   # для загрузки модели (~2GB)
     networks:
       - ai-medincident
@@ -226,6 +226,11 @@ services:
       GF_AUTH_BASIC_ENABLED: "false"
       GF_AUTH_DISABLE_LOGIN_FORM: "true"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_HOME_DASHBOARD_PATH: "/var/lib/grafana/dashboards/appeals-system-health.json"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
     volumes:
       - ./metrics-service/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./metrics-service/grafana/dashboards:/var/lib/grafana/dashboards:ro

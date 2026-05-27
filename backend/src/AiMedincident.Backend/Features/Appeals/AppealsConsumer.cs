@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Text.Json;
 using AiMedincident.Backend.Features.Appeals.Data;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
+using AiMedincident.Backend.Features.Appeals.Metrics;
 using AiMedincident.Backend.Shared.Configuration;
 using Microsoft.Extensions.Options;
 using NATS.Client.JetStream;
@@ -10,6 +12,7 @@ namespace AiMedincident.Backend.Features.Appeals;
 public sealed class AppealsConsumer(
     INatsJSContext jetStream,
     IServiceScopeFactory scopeFactory,
+    AppealsMetrics metrics,
     IOptions<AppOptions> options,
     ILogger<AppealsConsumer> logger) : BackgroundService
 {
@@ -95,7 +98,9 @@ public sealed class AppealsConsumer(
 
     private async Task HandleAsync(NatsJSMsg<byte[]> msg, CancellationToken ct)
     {
+        var sw = Stopwatch.StartNew();
         var deliveryCount = (int)(msg.Metadata?.NumDelivered ?? 1);
+        if (deliveryCount > 1) metrics.RecordRedelivery();
 
         AppealSubmit? submit;
         try
@@ -107,6 +112,8 @@ public sealed class AppealsConsumer(
             logger.LogError(ex, "Invalid JSON in appeals.submit, dropping");
             await TryWriteDlqRawAsync(msg.Data, DlqFailureType.InvalidMessage, $"invalid json: {ex.Message}", deliveryCount, ct);
             await msg.AckTerminateAsync(cancellationToken: ct);
+            metrics.RecordHandled("invalid_message");
+            metrics.RecordDuration(sw.Elapsed.TotalSeconds);
             return;
         }
 
@@ -115,6 +122,8 @@ public sealed class AppealsConsumer(
             logger.LogError("Missing id/text in appeals.submit, dropping");
             await TryWriteDlqRawAsync(msg.Data, DlqFailureType.InvalidMessage, "missing id/text", deliveryCount, ct);
             await msg.AckTerminateAsync(cancellationToken: ct);
+            metrics.RecordHandled("invalid_message");
+            metrics.RecordDuration(sw.Elapsed.TotalSeconds);
             return;
         }
 
@@ -138,11 +147,15 @@ public sealed class AppealsConsumer(
         {
             case ProcessResult.Success:
                 await msg.AckAsync(cancellationToken: ct);
+                metrics.RecordHandled("success");
+                metrics.RecordDuration(sw.Elapsed.TotalSeconds);
                 return;
 
             case ProcessResult.InvalidMessage inv:
                 await TryWriteDlqAsync(submit, DlqFailureType.InvalidMessage, inv.Reason, deliveryCount, ct);
                 await msg.AckTerminateAsync(cancellationToken: ct);
+                metrics.RecordHandled("invalid_message");
+                metrics.RecordDuration(sw.Elapsed.TotalSeconds);
                 return;
 
             case ProcessResult.Failure failure:
@@ -161,6 +174,8 @@ public sealed class AppealsConsumer(
                     logger.LogWarning(
                         "Appeal moved to DLQ after {Count} deliveries (id={Id}, type={Type}, reason={Reason})",
                         deliveryCount, submit.Id, failureType, failure.Reason);
+                    metrics.RecordHandled("exceeded_max_deliver");
+                    metrics.RecordDuration(sw.Elapsed.TotalSeconds);
                     return;
                 }
 
@@ -169,6 +184,8 @@ public sealed class AppealsConsumer(
                     "Appeal nak (id={Id}, attempt={Attempt}/{Max}, delay={Delay}s, reason={Reason})",
                     submit.Id, deliveryCount, AppealsStreamConfig.MaxDeliver, delay.TotalSeconds, failure.Reason);
                 await msg.NakAsync(delay: delay, cancellationToken: ct);
+                metrics.RecordHandled(failureType.ToString());
+                metrics.RecordDuration(sw.Elapsed.TotalSeconds);
                 return;
         }
     }
@@ -229,6 +246,7 @@ public sealed class AppealsConsumer(
             };
 
             await dlq.UpsertAsync(entry, ct);
+            metrics.RecordDlqWrite(failureType);
         }
         catch (Exception ex)
         {
@@ -263,6 +281,7 @@ public sealed class AppealsConsumer(
             };
 
             await dlq.UpsertAsync(entry, ct);
+            metrics.RecordDlqWrite(failureType);
         }
         catch (Exception ex)
         {

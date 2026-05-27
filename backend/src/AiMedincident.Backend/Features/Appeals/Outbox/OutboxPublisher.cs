@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using System.Text;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
+using AiMedincident.Backend.Features.Appeals.Metrics;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
 
@@ -8,6 +10,7 @@ namespace AiMedincident.Backend.Features.Appeals.Outbox;
 public sealed class OutboxPublisher(
     IServiceScopeFactory scopeFactory,
     INatsJSContext jetStream,
+    OutboxMetrics metrics,
     ILogger<OutboxPublisher> logger) : BackgroundService
 {
     private static readonly TimeSpan IdlePollInterval = TimeSpan.FromSeconds(2);
@@ -53,6 +56,7 @@ public sealed class OutboxPublisher(
 
         foreach (var entry in batch)
         {
+            var sw = Stopwatch.StartNew();
             try
             {
                 await jetStream.PublishAsync(
@@ -62,6 +66,7 @@ public sealed class OutboxPublisher(
                     cancellationToken: ct);
 
                 await repo.MarkPublishedAsync(entry.Id, ct);
+                metrics.RecordPublish("success", sw.Elapsed.TotalSeconds);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -70,6 +75,7 @@ public sealed class OutboxPublisher(
                     "Outbox publish failed (id={Id}, aggregate={Aggregate}, attempts={Attempts})",
                     entry.Id, entry.AggregateId, entry.Attempts);
                 await repo.MarkFailedAsync(entry.Id, Truncate(ex.Message, 2000), ct);
+                metrics.RecordPublish("failure", sw.Elapsed.TotalSeconds);
             }
         }
 

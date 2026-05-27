@@ -10,5 +10,5 @@ public sealed class AppealsConsumerHealthCheck(AppealsConsumer consumer) : IHeal
         CancellationToken cancellationToken = default) =>
         Task.FromResult(consumer.IsActive
             ? HealthCheckResult.Healthy("consumer running")
-            : HealthCheckResult.Degraded("consumer not active"));
+            : HealthCheckResult.Unhealthy("consumer not active"));
 }

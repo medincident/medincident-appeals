@@ -9,6 +9,7 @@ using AiMedincident.Backend.Shared.Configuration;
 using AiMedincident.Backend.Shared.Logging;
 using AiMedincident.Backend.Shared.Nats;
 using AiMedincident.Backend.Shared.Persistence;
+using AiMedincident.Backend.Shared.Telemetry;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -29,6 +30,7 @@ var appOptions = builder.Configuration
 builder.Services
     .AddProblemDetails()
     .AddAppHealthChecks()
+    .AddAppMetrics()
     .AddAppDatabase(builder.Configuration)
     .AddNatsMessaging(appOptions)
     .AddZitadelAuth(appOptions)
@@ -63,6 +65,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 }
 
 app.MapHealthChecks("/health");
+app.MapPrometheusScrapingEndpoint("/metrics");
 
 var api = app.MapGroup("/api/v1");
 api.MapAppealsEndpoints();

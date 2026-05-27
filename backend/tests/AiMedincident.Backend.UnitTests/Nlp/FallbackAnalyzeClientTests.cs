@@ -1,6 +1,8 @@
+using System.Diagnostics.Metrics;
 using AiMedincident.Backend.Features.Llm;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Nlp.Data;
+using AiMedincident.Backend.Features.Nlp.Metrics;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -9,12 +11,19 @@ namespace AiMedincident.Backend.UnitTests.Nlp;
 
 public class FallbackAnalyzeClientTests
 {
+    private static AnalyzeMetrics TestMetrics() => new(new TestMeterFactory());
+
+    private sealed class TestMeterFactory : IMeterFactory
+    {
+        public Meter Create(MeterOptions options) => new(options);
+        public void Dispose() { }
+    }
     [Fact]
     public async Task Primary_success_returns_primary_response()
     {
         var primary = new FakeNlp { Response = new NlpAnalyzeResponse { IsImportant = true, FormalizedText = "nlp" } };
         var secondary = new FakeLlm();
-        var fallback = new FallbackAnalyzeClient(primary, secondary, NullLogger<FallbackAnalyzeClient>.Instance);
+        var fallback = new FallbackAnalyzeClient(primary, secondary, TestMetrics(), NullLogger<FallbackAnalyzeClient>.Instance);
 
         var result = await fallback.AnalyzeAsync("text", TestContext.Current.CancellationToken);
 
@@ -28,7 +37,7 @@ public class FallbackAnalyzeClientTests
     {
         var primary = new FakeNlp { Exception = new NlpException("nlp down") };
         var secondary = new FakeLlm { Response = new NlpAnalyzeResponse { IsImportant = true, FormalizedText = "llm" } };
-        var fallback = new FallbackAnalyzeClient(primary, secondary, NullLogger<FallbackAnalyzeClient>.Instance);
+        var fallback = new FallbackAnalyzeClient(primary, secondary, TestMetrics(), NullLogger<FallbackAnalyzeClient>.Instance);
 
         var result = await fallback.AnalyzeAsync("text", TestContext.Current.CancellationToken);
 
@@ -42,7 +51,7 @@ public class FallbackAnalyzeClientTests
     {
         var primary = new FakeNlp { Exception = new NlpException("nlp down") };
         var secondary = new FakeLlm { Exception = new LlmException("llm down") };
-        var fallback = new FallbackAnalyzeClient(primary, secondary, NullLogger<FallbackAnalyzeClient>.Instance);
+        var fallback = new FallbackAnalyzeClient(primary, secondary, TestMetrics(), NullLogger<FallbackAnalyzeClient>.Instance);
 
         var act = async () => await fallback.AnalyzeAsync("text", TestContext.Current.CancellationToken);
 
@@ -57,7 +66,7 @@ public class FallbackAnalyzeClientTests
     {
         var primary = new FakeNlp { Exception = new InvalidOperationException("unexpected") };
         var secondary = new FakeLlm();
-        var fallback = new FallbackAnalyzeClient(primary, secondary, NullLogger<FallbackAnalyzeClient>.Instance);
+        var fallback = new FallbackAnalyzeClient(primary, secondary, TestMetrics(), NullLogger<FallbackAnalyzeClient>.Instance);
 
         var act = async () => await fallback.AnalyzeAsync("text", TestContext.Current.CancellationToken);
 

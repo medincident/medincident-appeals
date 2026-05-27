@@ -1,3 +1,4 @@
+using AiMedincident.Backend.Features.Nlp.Metrics;
 using AiMedincident.Backend.Shared.Configuration;
 using Microsoft.Extensions.Options;
 using Polly;
@@ -18,6 +19,7 @@ public static class NlpResiliencePipeline
         {
             var opt = ctx.ServiceProvider.GetRequiredService<IOptions<AppOptions>>().Value.Nlp;
             var logger = ctx.ServiceProvider.GetRequiredService<ILogger<NlpClient>>();
+            var metrics = ctx.ServiceProvider.GetRequiredService<AnalyzeMetrics>();
 
             builder
                 .AddRateLimiter(new ConcurrencyLimiter(new ConcurrencyLimiterOptions
@@ -41,16 +43,19 @@ public static class NlpResiliencePipeline
                             "NLP circuit opened (break={BreakDuration}s, lastError={Error})",
                             args.BreakDuration.TotalSeconds,
                             args.Outcome.Exception?.Message);
+                        metrics.SetNlpCircuitState(AnalyzeMetrics.CircuitOpen);
                         return default;
                     },
                     OnClosed = _ =>
                     {
                         logger.LogInformation("NLP circuit closed");
+                        metrics.SetNlpCircuitState(AnalyzeMetrics.CircuitClosed);
                         return default;
                     },
                     OnHalfOpened = _ =>
                     {
                         logger.LogInformation("NLP circuit half-open: trial in progress");
+                        metrics.SetNlpCircuitState(AnalyzeMetrics.CircuitHalfOpen);
                         return default;
                     },
                 })

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 import nats
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from models.llm import LlamaCppClient
@@ -18,6 +19,9 @@ from service import (
     CategoryCache,
     CategorySource,
     build_source,
+    instrument_app,
+    pipeline_duration_seconds,
+    pipeline_requests_total,
     run_analyze,
     subscribe_analyze,
 )
@@ -75,7 +79,9 @@ async def lifespan(app: FastAPI):
         state.nc = await nats.connect(NATS_URL)
         logger.info("NATS connected: %s", NATS_URL)
         state.sub = await subscribe_analyze(
-            state.nc, state.client, state.cache, run_analyze
+            state.nc, state.client, state.cache, run_analyze,
+            pipeline_duration_seconds=pipeline_duration_seconds,
+            pipeline_requests_total=pipeline_requests_total,
         )
     except Exception:
         logger.exception("Failed to connect to NATS, llm-service runs in HTTP-only mode")
@@ -98,6 +104,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="LLM Service", version="0.4.0", lifespan=lifespan)
+instrument_app(app)
 
 
 class AnalyzeRequest(BaseModel):
@@ -116,16 +123,31 @@ async def analyze(req: AnalyzeRequest, request: Request):
 
     state = _state(request)
     categories = state.cache.snapshot()
-    return await run_analyze(state.client, text, categories)
+    with pipeline_duration_seconds.time():
+        try:
+            result = await run_analyze(state.client, text, categories)
+        except Exception:
+            pipeline_requests_total.labels(outcome="error").inc()
+            raise
+    outcome = "important" if result.get("is_important") else "not_important"
+    pipeline_requests_total.labels(outcome=outcome).inc()
+    return result
 
 
 @app.get("/health")
 async def health(request: Request):
     state = _state(request)
-    return {
-        "status": "ok",
-        "model_loaded": state.client.is_alive,
+    nats_connected = state.nc is not None and state.nc.is_connected
+    analyze_subscribed = state.sub is not None
+    model_loaded = state.client.is_alive
+    healthy = nats_connected and analyze_subscribed and model_loaded
+
+    payload = {
+        "status": "ok" if healthy else "degraded",
+        "nats_connected": nats_connected,
+        "analyze_subscribed": analyze_subscribed,
+        "model_loaded": model_loaded,
         "model_path": str(state.client.model_path),
         "categories_cached": state.cache.size(),
-        "nats_connected": state.nc is not None and state.nc.is_connected,
     }
+    return JSONResponse(payload, status_code=200 if healthy else 503)

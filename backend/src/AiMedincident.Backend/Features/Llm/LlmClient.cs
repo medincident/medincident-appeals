@@ -1,7 +1,9 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Nlp.Data;
+using AiMedincident.Backend.Features.Nlp.Metrics;
 using NATS.Client.Core;
 using Polly;
 using Polly.RateLimiting;
@@ -20,15 +22,18 @@ public class LlmClient : IAnalyzeClient
     private readonly INatsConnection _nats;
     private readonly IHostEnvironment _env;
     private readonly ResiliencePipeline<byte[]> _pipeline;
+    private readonly AnalyzeMetrics? _metrics;
 
     public LlmClient(
         INatsConnection nats,
         IHostEnvironment env,
-        ResiliencePipelineProvider<string> pipelineProvider)
+        ResiliencePipelineProvider<string> pipelineProvider,
+        AnalyzeMetrics metrics)
     {
         _nats = nats;
         _env = env;
         _pipeline = pipelineProvider.GetPipeline<byte[]>(LlmResiliencePipeline.PipelineKey);
+        _metrics = metrics;
     }
 
     protected LlmClient(INatsConnection nats, IHostEnvironment env)
@@ -36,6 +41,7 @@ public class LlmClient : IAnalyzeClient
         _nats = nats;
         _env = env;
         _pipeline = ResiliencePipeline<byte[]>.Empty;
+        _metrics = null;
     }
 
     internal LlmClient(INatsConnection nats, IHostEnvironment env, ResiliencePipeline<byte[]> pipeline)
@@ -43,6 +49,7 @@ public class LlmClient : IAnalyzeClient
         _nats = nats;
         _env = env;
         _pipeline = pipeline;
+        _metrics = null;
     }
 
     public virtual async Task<NlpAnalyzeResponse> AnalyzeAsync(string text, CancellationToken ct = default)
@@ -50,6 +57,7 @@ public class LlmClient : IAnalyzeClient
         ArgumentException.ThrowIfNullOrEmpty(text);
 
         var requestBytes = JsonSerializer.SerializeToUtf8Bytes(new AnalyzeRequest(text), JsonOptions);
+        var sw = Stopwatch.StartNew();
 
         byte[] replyBytes;
         try
@@ -60,12 +68,21 @@ public class LlmClient : IAnalyzeClient
         }
         catch (RateLimiterRejectedException ex)
         {
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientLlm, AnalyzeMetrics.OutcomeBulkheadReject, sw.Elapsed.TotalSeconds);
             throw new LlmBulkheadRejectedException("llm-service over capacity", ex);
         }
         catch (TimeoutRejectedException ex)
         {
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientLlm, AnalyzeMetrics.OutcomeTimeout, sw.Elapsed.TotalSeconds);
             throw new LlmTimeoutException("llm-service timeout", ex);
         }
+        catch (LlmException)
+        {
+            _metrics?.RecordRequest(AnalyzeMetrics.ClientLlm, AnalyzeMetrics.OutcomeError, sw.Elapsed.TotalSeconds);
+            throw;
+        }
+
+        _metrics?.RecordRequest(AnalyzeMetrics.ClientLlm, AnalyzeMetrics.OutcomeSuccess, sw.Elapsed.TotalSeconds);
 
         var result = JsonSerializer.Deserialize<NlpAnalyzeResponse>(replyBytes, JsonOptions);
         return result ?? throw new LlmException("llm-service returned null");

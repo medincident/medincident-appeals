@@ -1,11 +1,13 @@
 using AiMedincident.Backend.Features.Llm;
 using AiMedincident.Backend.Features.Nlp.Data;
+using AiMedincident.Backend.Features.Nlp.Metrics;
 
 namespace AiMedincident.Backend.Features.Nlp;
 
 public sealed class FallbackAnalyzeClient(
     NlpClient primary,
     LlmClient secondary,
+    AnalyzeMetrics metrics,
     ILogger<FallbackAnalyzeClient> logger) : IAnalyzeClient
 {
     public async Task<NlpAnalyzeResponse> AnalyzeAsync(string text, CancellationToken ct = default)
@@ -20,6 +22,7 @@ public sealed class FallbackAnalyzeClient(
                 "Primary nlp-service failed ({Type}: {Message}), falling back to llm-service",
                 primaryEx.GetType().Name,
                 primaryEx.Message);
+            metrics.RecordFallback();
 
             try
             {
