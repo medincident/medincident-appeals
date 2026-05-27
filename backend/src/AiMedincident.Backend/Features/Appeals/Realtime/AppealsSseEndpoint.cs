@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using AiMedincident.Backend.Features.Auth;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
 
@@ -19,27 +18,18 @@ public static class AppealsSseEndpoint
 
     private static async Task HandleAsync(
         HttpContext http,
-        IAuthService auth,
+        SseTicketStore tickets,
         INatsJSContext jetStream,
         ILoggerFactory loggerFactory)
     {
         var logger = loggerFactory.CreateLogger("AppealsSSE");
 
-        var token = http.Request.Query["access_token"].ToString();
-        if (string.IsNullOrEmpty(token))
+        var ticket = http.Request.Query["ticket"].ToString();
+        if (string.IsNullOrEmpty(ticket) || !tickets.TryConsume(ticket, out var userId))
         {
             http.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
         }
-
-        var initial = await auth.VerifiedSubjectAsync("Bearer " + token, http.RequestAborted);
-        if (initial is not AuthResult.Success success)
-        {
-            http.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return;
-        }
-
-        var userId = success.Subject;
 
         http.Response.StatusCode = StatusCodes.Status200OK;
         http.Response.Headers.ContentType = "text/event-stream";

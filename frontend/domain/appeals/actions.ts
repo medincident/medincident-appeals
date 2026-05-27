@@ -7,22 +7,10 @@ import { revalidatePath } from "next/cache"
 import { AuthError, AuthErrorCode } from "@/services/auth/errors"
 import { requireSession } from "@/services/auth/session"
 import { appealsCreated } from "@/lib/metrics"
-import {
-  APPEALS_SUBMIT_SUBJECT,
-  getNats,
-  jsonCodec,
-} from "@/lib/nats"
 
 import type { Appeal, AppealFilters } from "./types"
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://backend:8080"
-
-interface AppealSubmitPayload {
-  id: string
-  text: string
-  created_at: string
-  user_id: string
-}
 
 interface BackendAppealRow {
   id: string
@@ -58,23 +46,42 @@ function rowToAppeal(r: BackendAppealRow): Appeal {
   }
 }
 
-async function enqueueViaNats(
-  id: string,
+interface BackendSubmitResponse {
+  id: string
+  createdAt: string
+}
+
+async function submitViaBackend(
   text: string,
   userId: string,
+  accessToken: string,
   idempotencyKey: string,
-): Promise<void> {
-  const { js } = await getNats()
-  const payload: AppealSubmitPayload = {
-    id,
-    text,
-    user_id: userId,
-    created_at: new Date().toISOString(),
-  }
-  await js.publish(APPEALS_SUBMIT_SUBJECT, jsonCodec.encode(payload), {
-    msgID: idempotencyKey,
-    timeout: 5_000,
+): Promise<BackendSubmitResponse> {
+  const url = `${BACKEND_URL}/api/v1/users/${encodeURIComponent(userId)}/appeals`
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ text, idempotencyKey }),
+    signal: AbortSignal.timeout(10_000),
+    cache: "no-store",
   })
+
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      throw new AuthError(AuthErrorCode.RefreshFailed)
+    }
+    const body = await res.text().catch(() => "")
+    throw new Error(`backend POST /users/.../appeals ${res.status}: ${body}`)
+  }
+
+  const data = (await res.json()) as BackendSubmitResponse
+  if (!data?.id || !data?.createdAt) {
+    throw new Error("backend submit response missing id/createdAt")
+  }
+  return data
 }
 
 function makeSummary(text: string, max = 50): string {
@@ -124,11 +131,15 @@ export async function createAppealAction(
 
   const session = await requireSession()
 
-  const id = randomUUID()
-  await enqueueViaNats(id, trimmed, session.userId, idempotencyKey ?? id)
+  const submitted = await submitViaBackend(
+    trimmed,
+    session.userId,
+    session.accessToken,
+    idempotencyKey ?? randomUUID(),
+  )
 
   const appeal: Appeal = {
-    id,
+    id: submitted.id,
     text: trimmed,
     summary: makeSummary(trimmed),
     formalizedText: trimmed,
@@ -136,7 +147,7 @@ export async function createAppealAction(
     subcategory: null,
     isImportant: true,
     status: "pending",
-    createdAt: new Date().toISOString(),
+    createdAt: submitted.createdAt,
   }
 
   appealsCreated.inc({ is_important: String(appeal.isImportant) })

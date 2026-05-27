@@ -129,7 +129,7 @@ export function useAppealsRealtime(enabled: boolean = true): void {
 
       if (cancelled) return
 
-      const es = new EventSource(`/sse/appeals?access_token=${encodeURIComponent(ticket.token)}`)
+      const es = new EventSource(`/sse/appeals?ticket=${encodeURIComponent(ticket.token)}`)
       source = es
 
       es.addEventListener("open", () => {

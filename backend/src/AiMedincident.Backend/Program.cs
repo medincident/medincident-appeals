@@ -1,5 +1,6 @@
 using AiMedincident.Backend.Features.Appeals;
 using AiMedincident.Backend.Features.Appeals.Realtime;
+using NATS.Client.JetStream;
 using AiMedincident.Backend.Features.Audit;
 using AiMedincident.Backend.Features.Auth;
 using AiMedincident.Backend.Features.Health;
@@ -63,6 +64,9 @@ await using (var scope = app.Services.CreateAsyncScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await DatabaseInitialization.EnsureSchemaAsync(db, app.Logger, app.Lifetime.ApplicationStopping);
+
+    var jetStream = scope.ServiceProvider.GetRequiredService<INatsJSContext>();
+    await AppealsStreamConfig.EnsureStreamAsync(jetStream, app.Lifetime.ApplicationStopping);
 }
 
 app.MapHealthChecks("/health");
@@ -71,6 +75,7 @@ app.MapPrometheusScrapingEndpoint("/metrics");
 var api = app.MapGroup("/api/v1");
 api.MapAppealsEndpoints();
 api.MapAuthEndpoints();
+api.MapRealtimeTicketEndpoint();
 
 app.MapAppealsSseEndpoint();
 
