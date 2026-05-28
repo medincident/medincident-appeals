@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from models.llm import LlamaCppClient
-from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, model_path
+from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, resolve_model_path
 from service import (
     CategoryCache,
     CategorySource,
@@ -52,7 +52,7 @@ class AppState:
 
 
 def build_state() -> AppState:
-    gguf = model_path(LLM_REPO, LLM_QUANT)
+    gguf = resolve_model_path(LLM_REPO, LLM_QUANT)
     client = LlamaCppClient(
         model_path=gguf,
         n_ctx=LLM_N_CTX,

@@ -31,8 +31,8 @@ from benchmarks import (
     percentile,
     write_result,
 )
-from models.similarity import BASE_MODEL
 from mock_categories import CATEGORIES
+from models.similarity import BASE_MODEL
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

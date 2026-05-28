@@ -14,9 +14,9 @@ import json
 import os
 import sys
 
-from models.llm import LlamaCppClient
-from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, model_path
 from mock_categories import CATEGORIES
+from models.llm import LlamaCppClient
+from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, resolve_model_path
 from service.pipeline import run_analyze
 
 
@@ -40,7 +40,7 @@ async def amain() -> None:
     parser.add_argument("--n-gpu-layers", type=int, default=int(os.getenv("LLM_N_GPU_LAYERS", "0")))
     args = parser.parse_args()
 
-    gguf = model_path(args.repo, args.quant)
+    gguf = resolve_model_path(args.repo, args.quant)
     print(f"LLM: {gguf}", flush=True)
     client = LlamaCppClient(model_path=gguf, n_gpu_layers=args.n_gpu_layers)
 

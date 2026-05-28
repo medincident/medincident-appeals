@@ -15,9 +15,9 @@ import os
 import random
 import time
 
-from models.llm import LlamaCppClient
-from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, model_path
 from mock_categories import CATEGORIES
+from models.llm import LlamaCppClient
+from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, resolve_model_path
 from paths import DATASET_PATH
 from service.pipeline import run_analyze
 
@@ -97,7 +97,7 @@ async def amain() -> None:
     if args.seed is not None:
         random.seed(args.seed)
 
-    gguf = model_path(args.repo, args.quant)
+    gguf = resolve_model_path(args.repo, args.quant)
     print(f"LLM: {gguf}")
 
     examples = load_examples(important=not args.not_important)

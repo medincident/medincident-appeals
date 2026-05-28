@@ -21,6 +21,5 @@ if str(_SCRIPTS) not in sys.path:
 
 from test_llm import main  # noqa: E402
 
-
 if __name__ == "__main__":
     main()

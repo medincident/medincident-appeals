@@ -125,7 +125,7 @@ services:
       - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
-  # ── LLM Service (Ollama + Qwen2.5-3B) ──────────────────────
+  # ── LLM Service (llama-cpp-python + Qwen3-4B GGUF) ──────────────────────
   llm-service:
     profiles: [llm]
     build:
@@ -135,7 +135,9 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ollama_data:/root/.ollama
+      # GGUF-файл кладётся на хосте в ./llm-service/models_cache/gguf/,
+      # контейнер берёт модель по LLM_REPO + LLM_QUANT. В образ модель не запекается.
+      - ./llm-service/models_cache:/app/models_cache
     # Для настройки GPU:
     # deploy:
     #   resources:
@@ -147,7 +149,7 @@ services:
     healthcheck:
       <<: *default-healthcheck
       test: ["CMD", "curl", "-sf", "http://localhost:11434/health"]
-      start_period: 180s   # для загрузки модели (~2GB)
+      start_period: 180s   # загрузка GGUF (~2.5GB) в память при старте
     networks:
       - ai-medincident
     logging: *default-logging
@@ -271,7 +273,6 @@ networks:
 volumes:
   postgres_data:   # appeals + любые будущие таблицы backend'а
   nats_data:       # JetStream storage — чтобы appeals не терялись при рестарте
-  ollama_data:     # модель Ollama/Qwen (~1.9GB)
   nlp_models:      # кэш HuggingFace моделей (~368MB)
   prometheus_data: # TSDB метрик (retention 7 дней)
   grafana_data:    # настройки Grafana

@@ -15,9 +15,9 @@ import logging
 import os
 import time
 
-from models.llm import LlamaCppClient
-from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, model_path
 from mock_categories import CATEGORIES
+from models.llm import LlamaCppClient
+from models.llm.load import DEFAULT_QUANT, DEFAULT_REPO, resolve_model_path
 from paths import DATASET_PATH
 from service.pipeline import run_analyze
 
@@ -59,7 +59,7 @@ async def amain() -> None:
     parser.add_argument("--n-gpu-layers", type=int, default=int(os.getenv("LLM_N_GPU_LAYERS", "0")))
     args = parser.parse_args()
 
-    gguf = model_path(args.repo, args.quant)
+    gguf = resolve_model_path(args.repo, args.quant)
     logger.info("LLM: %s", gguf)
 
     test_texts, test_labels, test_answers = load_test_set()

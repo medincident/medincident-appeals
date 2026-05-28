@@ -13,10 +13,13 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 from paths import MODELS_CACHE_DIR
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_REPO = "unsloth/Qwen3-4B-GGUF"
 DEFAULT_QUANT = "Q4_K_M"
@@ -31,6 +34,41 @@ def gguf_filename(repo: str, quant: str) -> str:
 def model_path(repo: str = DEFAULT_REPO, quant: str = DEFAULT_QUANT) -> Path:
     """Куда складывается файл — используется и в load.py, и в model.py."""
     return MODELS_CACHE_DIR / "gguf" / gguf_filename(repo, quant)
+
+
+def resolve_model_path(repo: str = DEFAULT_REPO, quant: str = DEFAULT_QUANT) -> Path:
+    """Подбирает GGUF в models_cache/gguf/ при старте сервиса.
+
+    1. Точное совпадение по repo+quant (`<ModelName>-<quant>.gguf`).
+    2. Иначе — warning и поиск файла с `Default` в имени (при нескольких — первый
+       по алфавиту, тоже с warning).
+    3. Если ничего нет — FileNotFoundError (вызывающий завершает сервис).
+    """
+    target = model_path(repo, quant)
+    if target.exists():
+        return target
+
+    gguf_dir = target.parent
+    logger.warning(
+        "Модель по LLM_REPO=%s LLM_QUANT=%s не найдена (%s) — ищу fallback с 'Default' в имени",
+        repo, quant, target,
+    )
+
+    candidates = sorted(p for p in gguf_dir.glob("*.gguf") if "Default" in p.name)
+    if candidates:
+        chosen = candidates[0]
+        if len(candidates) > 1:
+            logger.warning(
+                "Найдено несколько 'Default' GGUF (%s) — беру первый: %s",
+                ", ".join(p.name for p in candidates), chosen.name,
+            )
+        else:
+            logger.warning("Использую fallback-модель: %s", chosen)
+        return chosen
+
+    raise FileNotFoundError(
+        f"GGUF не найден: ни {target.name}, ни файла с 'Default' в имени в {gguf_dir}"
+    )
 
 
 def download(repo: str, quant: str) -> Path:

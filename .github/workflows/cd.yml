@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend, nlp-service] # , llm-service
+        service: [backend, frontend, nlp-service, llm-service]
         include:
           - service: backend
             context: ./backend
@@ -43,9 +43,12 @@ jobs:
           - service: frontend
             context: ./frontend
             file: ./frontend/Dockerfile.prod
-          # - service: llm-service
-          #   context: ./llm-service
-          #   file: ./llm-service/Dockerfile
+          - service: llm-service
+            context: ./llm-service
+            file: ./llm-service/Dockerfile
+            # llama-cpp-python собирается из исходников; сборка под arm64 через QEMU
+            # слишком медленная и нестабильная (OOM/timeout) — только amd64.
+            platforms: linux/amd64
           - service: nlp-service
             context: ./nlp-service
             file: ./nlp-service/Dockerfile
@@ -79,7 +82,7 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms || 'linux/amd64,linux/arm64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

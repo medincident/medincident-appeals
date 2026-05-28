@@ -37,9 +37,7 @@ class LlamaCppClient:
         from llama_cpp import Llama
 
         if not model_path.exists():
-            raise FileNotFoundError(
-                f"GGUF не найден: {model_path}. Скачай: uv run python -m models.llm.load"
-            )
+            raise FileNotFoundError(f"GGUF не найден: {model_path}")
 
         # chat_format=None → llama-cpp возьмёт chat template из метаданных GGUF.
         # Это самый надёжный вариант, потому что unsloth/Qwen3-4B-GGUF содержит
