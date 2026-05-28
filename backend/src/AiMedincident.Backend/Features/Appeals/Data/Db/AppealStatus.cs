@@ -10,4 +10,5 @@ public enum AppealStatus
     [JsonStringEnumMemberName("processed")]  Processed,
     [JsonStringEnumMemberName("resolved")]   Resolved,
     [JsonStringEnumMemberName("rejected")]   Rejected,
+    [JsonStringEnumMemberName("failed")]     Failed,
 }

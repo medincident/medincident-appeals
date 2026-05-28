@@ -231,6 +231,7 @@ public sealed class AppealsConsumer(
         {
             using var scope = scopeFactory.CreateScope();
             var dlq = scope.ServiceProvider.GetRequiredService<AppealsDlqRepository>();
+            var appeals = scope.ServiceProvider.GetRequiredService<AppealsRepository>();
 
             var entry = new AppealDlqEntry
             {
@@ -247,6 +248,7 @@ public sealed class AppealsConsumer(
 
             await dlq.UpsertAsync(entry, ct);
             metrics.RecordDlqWrite(failureType);
+            await appeals.SetStatusAsync(id, AppealStatus.Failed, ct);
         }
         catch (Exception ex)
         {

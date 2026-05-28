@@ -4,6 +4,7 @@ export type AppealStatus =
   | "processed"
   | "resolved"
   | "rejected"
+  | "failed"
 
 export interface AppealCategory {
   id: string

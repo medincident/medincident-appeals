@@ -22,11 +22,12 @@ const STATUS_CONFIG: Record<
   AppealStatus,
   { label: string; variant: "warning" | "primary" | "default" | "destructive"; Icon: React.ComponentType<{ className?: string }>; spinning: boolean }
 > = {
-  pending:    { label: "В очереди",     variant: "warning",     Icon: Clock,     spinning: false },
-  processing: { label: "Обрабатывается", variant: "warning",    Icon: Loader2,   spinning: true  },
-  processed:  { label: "Обработано",    variant: "primary",     Icon: Check,     spinning: false },
-  resolved:   { label: "Завершено",     variant: "default",     Icon: CheckCheck,spinning: false },
-  rejected:   { label: "Отклонено",     variant: "destructive", Icon: X,         spinning: false },
+  pending:    { label: "В очереди",     variant: "warning",     Icon: Clock,         spinning: false },
+  processing: { label: "Обрабатывается", variant: "warning",    Icon: Loader2,       spinning: true  },
+  processed:  { label: "Обработано",    variant: "primary",     Icon: Check,         spinning: false },
+  resolved:   { label: "Завершено",     variant: "default",     Icon: CheckCheck,    spinning: false },
+  rejected:   { label: "Отклонено",     variant: "destructive", Icon: X,             spinning: false },
+  failed:     { label: "Ошибка обработки", variant: "destructive", Icon: AlertTriangle, spinning: false },
 }
 
 export const IN_PROGRESS_STATUSES = new Set<AppealStatus>(["pending", "processing"])

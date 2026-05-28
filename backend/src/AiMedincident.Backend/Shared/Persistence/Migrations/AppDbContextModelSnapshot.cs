@@ -22,7 +22,7 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_dlq_failure_type", new[] { "analyze_failure", "db_failure", "exceeded_max_deliver", "invalid_message", "publish_failure" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_status", new[] { "pending", "processed", "processing", "rejected", "resolved" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_status", new[] { "failed", "pending", "processed", "processing", "rejected", "resolved" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("AiMedincident.Backend.Features.Appeals.Data.Db.Appeal", b =>

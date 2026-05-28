@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import {
+  AlertTriangle,
   Check,
   CheckCheck,
   Clock,
@@ -27,8 +28,9 @@ const STATUS_CHIPS: readonly StatusChip[] = [
   { value: "pending",    label: "В очереди",      Icon: Clock,      color: "text-warning" },
   { value: "processing", label: "Обрабатывается", Icon: Loader2,    color: "text-warning" },
   { value: "processed",  label: "Обработано",     Icon: Check,      color: "text-primary" },
-  { value: "resolved",   label: "Завершено",      Icon: CheckCheck, color: "text-muted-foreground" },
-  { value: "rejected",   label: "Отклонено",      Icon: X,          color: "text-destructive" },
+  { value: "resolved",   label: "Завершено",      Icon: CheckCheck,    color: "text-muted-foreground" },
+  { value: "rejected",   label: "Отклонено",      Icon: X,             color: "text-destructive" },
+  { value: "failed",     label: "Ошибка обработки", Icon: AlertTriangle, color: "text-destructive" },
 ]
 
 interface AppealsToolbarProps {

@@ -60,7 +60,7 @@ function applyError(prev: Appeal[] | undefined, payload: ErrorPayload): Appeal[]
   const next = prev.map((a) => {
     if (a.id !== payload.id) return a
     touched = true
-    return { ...a, status: "rejected" as const }
+    return { ...a, status: "failed" as const }
   })
   return touched ? next : prev
 }
