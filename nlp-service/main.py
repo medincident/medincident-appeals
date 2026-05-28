@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -13,66 +14,57 @@ from pydantic import BaseModel
 
 from models import CategoryMatcher, ImportanceClassifier, TextProcessor
 from service import (
+    CategoryCache,
+    build_source,
     classifier_predictions_total,
     connect_with_retry,
     instrument_app,
-    load_categories,
     pipeline_duration_seconds,
     pipeline_requests_total,
     run_pipeline,
     setup_logging,
     subscribe_analyze,
-    watch_categories,
 )
 
 setup_logging()
 logger = logging.getLogger(__name__)
 
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
-KV_BUCKET = "medincident"
-KV_KEY = "categories"
 
 classifier = ImportanceClassifier()
 processor = TextProcessor()
 matcher = CategoryMatcher()
-categories_cache: list[dict] = []
-
-_nc = None
-_analyze_sub = None
 
 
 def _apply_categories(raw: list[dict]) -> None:
-    global categories_cache
-    categories_cache = raw
     matcher.update_categories(raw)
     logger.info("Categories updated: %d categories", len(raw))
 
 
+# Cache переиндексирует matcher на каждое обновление (warmup + watch).
+cache = CategoryCache(on_change=_apply_categories)
+source = build_source()
+
+_nc = None
+_analyze_sub = None
+_watcher_task: asyncio.Task | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _nc, _analyze_sub
+    global _nc, _analyze_sub, _watcher_task
     logger.info("Loading NLP models...")
     classifier.load()
     processor.load()
     matcher.load()
     logger.info("All models loaded")
 
-    watcher_task = None
+    if not await source.warmup(cache):
+        logger.warning("Categories not loaded yet — watcher will pick them up")
+    _watcher_task = asyncio.create_task(source.watch(cache))
+
     try:
         _nc = await connect_with_retry(NATS_URL)
-        js = _nc.jetstream()
-
-        for _ in range(20):
-            if await load_categories(js, KV_BUCKET, KV_KEY, _apply_categories):
-                break
-            await asyncio.sleep(3.0)
-        else:
-            logger.error("Failed to load categories from NATS — matcher will return null")
-
-        watcher_task = asyncio.create_task(
-            watch_categories(js, KV_BUCKET, KV_KEY, _apply_categories)
-        )
-
         _analyze_sub = await subscribe_analyze(
             _nc,
             classifier,
@@ -84,16 +76,19 @@ async def lifespan(app: FastAPI):
             classifier_predictions_total,
         )
     except Exception as exc:
-        logger.error("NATS unavailable: %s — service starts without categories", exc)
+        logger.error("NATS unavailable: %s — analyze subscription disabled", exc)
 
     yield
 
     if _analyze_sub:
         await _analyze_sub.unsubscribe()
-    if watcher_task:
-        watcher_task.cancel()
+    if _watcher_task:
+        _watcher_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _watcher_task
     if _nc:
         await _nc.drain()
+    await source.close()
 
 
 app = FastAPI(title="NLP Service", version="0.1.0", lifespan=lifespan)
@@ -175,11 +170,11 @@ async def health():
                 "categories_indexed": len(matcher._categories),
             },
         },
-        "categories_cached": len(categories_cache),
+        "categories_cached": cache.size(),
     }
     return JSONResponse(payload, status_code=200 if healthy else 503)
 
 
 @app.get("/categories")
 async def get_categories():
-    return {"categories": categories_cache}
+    return {"categories": cache.snapshot()}
