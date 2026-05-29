@@ -39,10 +39,10 @@ EXTRA_FILES = [
     ROOT_DIR / "generate_dataset.py",
 ]
 # (source_path, arcname) — файлы с кастомным путём в архиве.
-# categories.py кладём в корень nlp-service/, чтобы пакет был самодостаточным
+# mock_categories.py кладём в корень nlp-service/, чтобы пакет был самодостаточным
 # (без зависимости от соседней categories-service/).
 EXTRA_PLACED_FILES: list[tuple[Path, Path]] = [
-    (ROOT_DIR / "categories-service-mock" / "categories.py", Path("nlp-service/categories.py")),
+    (ROOT_DIR / "categories-service" / "mock_categories.py", Path("nlp-service/mock_categories.py")),
 ]
 
 

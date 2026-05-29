@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Прогон CategoryMatcher (MiniLM, подбор категории и подкатегории).
 
-Категории берутся из соседнего пакета categories-service-mock.
+Категории берутся из соседнего пакета categories-service.
 
   uv run python -m models.similarity.run -m "упал с кровати"
   uv run python -m models.similarity.run -i

@@ -1,0 +1,24 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info
+build/
+dist/
+
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Тесты в runtime-образе не нужны.
+tests/
+
+# Клиент генерируется в builder-стейдже из swagger; локальные артефакты не нужны
+# в контексте (swagger коммитим и копируем в builder отдельно).
+generated/
+.cache/
+*.openapi.json
+
+# Секреты монтируются в рантайме, не запекаются в образ.
+secrets/
+*.json.key
+key.json

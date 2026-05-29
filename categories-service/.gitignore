@@ -1,0 +1,15 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Сгенерированный OpenAPI-клиент (создаётся scripts/generate_client.sh; swagger коммитим)
+generated/
+.cache/
+medincident.openapi.json
