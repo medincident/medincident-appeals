@@ -11,4 +11,10 @@ public enum AppealStatus
     [JsonStringEnumMemberName("resolved")]   Resolved,
     [JsonStringEnumMemberName("rejected")]   Rejected,
     [JsonStringEnumMemberName("failed")]     Failed,
+
+    // Зеркало PatientStatus medincident-backend после отправки обращения.
+    [JsonStringEnumMemberName("submitted")]  Submitted,
+    [JsonStringEnumMemberName("accepted")]   Accepted,
+    [JsonStringEnumMemberName("closed")]     Closed,
+    [JsonStringEnumMemberName("cancelled")]  Cancelled,
 }

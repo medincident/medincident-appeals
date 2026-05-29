@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package event.incident.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// IncidentCreated — subject: medincident.event.incident.v1.created
+// aggregate_id = incident UUID
+message IncidentCreated {
+  string incident_id = 1;
+  string organization_id = 2;
+  string clinic_id = 3;
+  string department_id = 4;
+  string category_id = 5;
+  string type_id = 6;
+  string status = 7;
+  string priority = 8;
+  google.protobuf.StringValue description = 9;
+  google.protobuf.StringValue patient_original_description = 10;
+  google.protobuf.Timestamp occurred_at = 11;
+  string registrar_zitadel_user_id = 12;
+  string registrar_employee_id = 13;
+  google.protobuf.StringValue source_patient_zitadel_user_id = 14;
+  google.protobuf.StringValue source_buffer_id = 15;
+  google.protobuf.StringValue reopened_from_incident_id = 16;
+  google.protobuf.Timestamp created_at = 17;
+  string registrar_organization_id = 18;
+  string registrar_clinic_id = 19;
+  string registrar_department_id = 20;
+  google.protobuf.StringValue registrar_position = 21;
+}
+
+// IncidentStatusChanged — subject: medincident.event.incident.v1.status_changed
+message IncidentStatusChanged {
+  string incident_id = 1;
+  string old_status = 2;
+  string new_status = 3;
+  google.protobuf.StringValue actor_employee_id = 4;
+  string actor_zitadel_user_id = 5;
+  google.protobuf.Timestamp changed_at = 6;
+}
+
+// IncidentPriorityChanged — subject: medincident.event.incident.v1.priority_changed
+message IncidentPriorityChanged {
+  string incident_id = 1;
+  string old_priority = 2;
+  string new_priority = 3;
+  google.protobuf.StringValue actor_employee_id = 4;
+  string actor_zitadel_user_id = 5;
+  google.protobuf.Timestamp changed_at = 6;
+}
+
+// IncidentDescriptionUpdated — subject: medincident.event.incident.v1.description_updated
+message IncidentDescriptionUpdated {
+  string incident_id = 1;
+  google.protobuf.StringValue description = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}

@@ -5,6 +5,7 @@ using AiMedincident.Backend.Features.Audit;
 using AiMedincident.Backend.Features.Auth;
 using AiMedincident.Backend.Features.Health;
 using AiMedincident.Backend.Features.Llm;
+using AiMedincident.Backend.Features.MedincidentBackend;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Retention;
 using AiMedincident.Backend.Shared.Configuration;
@@ -40,7 +41,8 @@ builder.Services
     .AddLlm()
     .AddAudit()
     .AddAppealRetention()
-    .AddAppeals();
+    .AddAppeals()
+    .AddMedincidentBackend(appOptions);
 
 var appUrl = appOptions.HttpAddr.StartsWith(':')
     ? $"http://0.0.0.0{appOptions.HttpAddr}"

@@ -6,7 +6,7 @@ import { useSWRConfig } from "swr"
 import { AuthError, isAuthError } from "@/services/auth/errors"
 
 import { getRealtimeTicketAction } from "./realtime-actions"
-import type { Appeal, AppealCategory } from "./types"
+import type { Appeal, AppealCategory, AppealStatus } from "./types"
 
 interface ResultPayload {
   id: string
@@ -22,6 +22,12 @@ interface ErrorPayload {
   id: string
   user_id?: string
   error: string
+}
+
+interface StatusPayload {
+  id: string
+  user_id?: string
+  status: AppealStatus
 }
 
 const RECONNECT_BASE_MS = 1_000
@@ -61,6 +67,17 @@ function applyError(prev: Appeal[] | undefined, payload: ErrorPayload): Appeal[]
     if (a.id !== payload.id) return a
     touched = true
     return { ...a, status: "failed" as const }
+  })
+  return touched ? next : prev
+}
+
+function applyStatus(prev: Appeal[] | undefined, payload: StatusPayload): Appeal[] | undefined {
+  if (!prev) return prev
+  let touched = false
+  const next = prev.map((a) => {
+    if (a.id !== payload.id) return a
+    touched = true
+    return { ...a, status: payload.status }
   })
   return touched ? next : prev
 }
@@ -142,6 +159,10 @@ export function useAppealsRealtime(enabled: boolean = true): void {
 
       es.addEventListener("appeal.error", (ev) => {
         apply<ErrorPayload>((ev as MessageEvent).data, applyError)
+      })
+
+      es.addEventListener("appeal.status", (ev) => {
+        apply<StatusPayload>((ev as MessageEvent).data, applyStatus)
       })
 
       es.addEventListener("error", () => {

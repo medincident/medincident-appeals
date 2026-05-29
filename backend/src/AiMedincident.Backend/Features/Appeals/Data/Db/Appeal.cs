@@ -17,6 +17,14 @@ public sealed class Appeal
     public string? SubcategoryName { get; set; }
     public AppealStatus Status { get; set; } = AppealStatus.Pending;
     public DateTimeOffset CreatedAt { get; set; }
+
+    // ID записи буфера в medincident-backend (после успешного submit). По нему
+    // NATS-консьюмер коррелирует события buffer/incident.created.
+    public Guid? BufferId { get; set; }
+
+    // ID инцидента в medincident-backend (после публикации буфера диспетчером).
+    // По нему коррелируем incident.status_changed → терминальные статусы.
+    public Guid? IncidentId { get; set; }
 }
 
 internal sealed class AppealConfiguration : IEntityTypeConfiguration<Appeal>
@@ -54,6 +62,9 @@ internal sealed class AppealConfiguration : IEntityTypeConfiguration<Appeal>
         entity.Property(a => a.CreatedAt)
               .HasColumnName("created_at")
               .HasDefaultValueSql("NOW()");
+
+        entity.Property(a => a.BufferId).HasColumnName("buffer_id");
+        entity.Property(a => a.IncidentId).HasColumnName("incident_id");
 
         entity.HasIndex(a => new { a.UserId, a.CreatedAt })
               .HasDatabaseName("appeals_user_created_idx")

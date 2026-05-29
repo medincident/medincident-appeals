@@ -75,11 +75,16 @@ public static class AppealsEndpoints
             ? id.ToString()
             : request.IdempotencyKey!.Trim();
 
+        // Захватываем bearer пациента — под ним обращение уйдёт в medincident-backend
+        // в асинхронной обработке (HTTP-контекст там уже недоступен).
+        var accessToken = ExtractBearer(http.Request.Headers.Authorization.ToString());
+
         var submit = new AppealSubmit(
             Id: id.ToString(),
             Text: text,
             UserId: userId,
-            CreatedAt: createdAt.ToString("O"));
+            CreatedAt: createdAt.ToString("O"),
+            AccessToken: accessToken);
 
         var payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(submit, SubmitJsonOptions));
 
@@ -128,6 +133,15 @@ public static class AppealsEndpoints
 
     private static string? ClientIp(HttpContext http) =>
         http.Connection.RemoteIpAddress?.ToString();
+
+    private static string? ExtractBearer(string? authHeader)
+    {
+        if (string.IsNullOrWhiteSpace(authHeader) ||
+            !authHeader.StartsWith("bearer ", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var token = authHeader["bearer ".Length..].Trim();
+        return token.Length == 0 ? null : token;
+    }
 
     private static AppealDto ToDto(Appeal a) => new(
         a.Id, a.UserId, a.Text, a.FormalizedText, a.IsImportant,

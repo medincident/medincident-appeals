@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package event.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+// Envelope is the transport wrapper for every domain event published to
+// NATS JetStream. The subject on the NATS message encodes the routing
+// key (medincident.event.<aggregate_type>.v1.<action>); fields here
+// carry the structured metadata and the typed payload.
+message Envelope {
+  // occurred_at is the wall-clock time the domain mutation happened.
+  google.protobuf.Timestamp occurred_at = 1;
+
+  // aggregate_type identifies the aggregate family: "organization",
+  // "clinic", "department", "employee", "vacation", "system_admin",
+  // "incident_category", "incident_type", "incident", "incident_buffer",
+  // "request_type", "service_request".
+  string aggregate_type = 2;
+
+  // aggregate_id is the UUID (as a string) of the aggregate instance.
+  // For system_admin events it is the zitadel_user_id.
+  string aggregate_id = 3;
+
+  // payload holds the concrete event message serialised as Any.
+  google.protobuf.Any payload = 4;
+}

@@ -33,6 +33,25 @@ public sealed class AppOptions
     public NlpResilienceOptions Nlp { get; set; } = new();
 
     public LlmResilienceOptions Llm { get; set; } = new();
+
+    public MedincidentOptions Medincident { get; set; } = new();
+}
+
+public sealed class MedincidentOptions
+{
+    // Включает submit обращений и подписку на статус-события medincident-backend.
+    public bool Enabled { get; set; }
+
+    public string ServerUrl { get; set; } = "";
+
+    // UUID организации в medincident-backend (НЕ Zitadel orgId).
+    public string OrgId { get; set; } = "";
+
+    // Отдельная NATS-шина medincident-backend (не наша).
+    public string NatsUrl { get; set; } = "";
+
+    public string EventsStream { get; set; } = "medincident_events";
+    public string EventsConsumer { get; set; } = "ai-medincident-appeals";
 }
 
 public sealed class NlpResilienceOptions

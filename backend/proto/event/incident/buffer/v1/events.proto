@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package event.incident.buffer.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+// PatientIncidentBufferCreated — subject: medincident.event.patient_incident_buffer.v1.created
+// aggregate_id = buffer UUID
+message PatientIncidentBufferCreated {
+  string buffer_id = 1;
+  string organization_id = 2;
+  string patient_zitadel_user_id = 3;
+  google.protobuf.StringValue category_id = 4;
+  google.protobuf.StringValue type_id = 5;
+  string description = 6;
+  google.protobuf.Timestamp occurred_at = 7;
+  string status = 8;
+  google.protobuf.Timestamp created_at = 9;
+  string summary = 10;
+  string priority = 11;
+}
+
+// PatientIncidentBufferUpdated — subject: medincident.event.patient_incident_buffer.v1.updated
+message PatientIncidentBufferUpdated {
+  string buffer_id = 1;
+  google.protobuf.StringValue category_id = 2;
+  google.protobuf.StringValue type_id = 3;
+  string description = 4;
+  google.protobuf.Timestamp occurred_at = 5;
+  string status = 6;
+  google.protobuf.StringValue published_incident_id = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  google.protobuf.StringValue summary = 9;
+  google.protobuf.StringValue priority = 10;
+}

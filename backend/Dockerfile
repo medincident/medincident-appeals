@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1.7
-FROM mcr.microsoft.com/dotnet/sdk:10.0-alpine AS build
+# Не alpine: protoc из Grpc.Tools слинкован с glibc и не запустится на musl.
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 COPY src/ src/
+# csproj ссылается на proto как ../../proto → /src/proto.
+COPY proto/ proto/
 RUN --mount=type=cache,target=/root/.nuget/packages \
     dotnet publish src/AiMedincident.Backend/AiMedincident.Backend.csproj \
       -c Release -o /app/publish /p:UseAppHost=false

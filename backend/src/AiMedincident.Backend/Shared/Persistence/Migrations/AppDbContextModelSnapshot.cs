@@ -22,7 +22,7 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_dlq_failure_type", new[] { "analyze_failure", "db_failure", "exceeded_max_deliver", "invalid_message", "publish_failure" });
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_status", new[] { "failed", "pending", "processed", "processing", "rejected", "resolved" });
+            NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "appeal_status", new[] { "accepted", "cancelled", "closed", "failed", "pending", "processed", "processing", "rejected", "resolved", "submitted" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("AiMedincident.Backend.Features.Appeals.Data.Db.Appeal", b =>
@@ -31,6 +31,10 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid")
                         .HasColumnName("id");
+
+                    b.Property<Guid?>("BufferId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("buffer_id");
 
                     b.Property<string>("CategoryId")
                         .HasColumnType("text")
@@ -56,6 +60,10 @@ namespace AiMedincident.Backend.Shared.Persistence.Migrations
                     b.Property<float?>("ImportantConfidence")
                         .HasColumnType("real")
                         .HasColumnName("important_confidence");
+
+                    b.Property<Guid?>("IncidentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("incident_id");
 
                     b.Property<bool>("IsImportant")
                         .ValueGeneratedOnAdd()

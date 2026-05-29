@@ -5,6 +5,11 @@ export type AppealStatus =
   | "resolved"
   | "rejected"
   | "failed"
+  // Статусы после отправки в medincident-backend (зеркало PatientStatus).
+  | "submitted"
+  | "accepted"
+  | "closed"
+  | "cancelled"
 
 export interface AppealCategory {
   id: string

@@ -28,6 +28,11 @@ const STATUS_CONFIG: Record<
   resolved:   { label: "Завершено",     variant: "default",     Icon: CheckCheck,    spinning: false },
   rejected:   { label: "Отклонено",     variant: "destructive", Icon: X,             spinning: false },
   failed:     { label: "Ошибка обработки", variant: "destructive", Icon: AlertTriangle, spinning: false },
+  // Статусы после отправки в medincident-backend.
+  submitted:  { label: "Отправлено",    variant: "primary",     Icon: CheckCheck,    spinning: false },
+  accepted:   { label: "Принято",       variant: "primary",     Icon: Loader2,       spinning: true  },
+  closed:     { label: "Закрыто",       variant: "default",     Icon: CheckCheck,    spinning: false },
+  cancelled:  { label: "Отменено",      variant: "destructive", Icon: X,             spinning: false },
 }
 
 export const IN_PROGRESS_STATUSES = new Set<AppealStatus>(["pending", "processing"])

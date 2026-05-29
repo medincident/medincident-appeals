@@ -11,4 +11,5 @@ public abstract record ProcessResult
     public sealed record AppealAnalyzeFailure(string Reason) : Failure(Reason);
     public sealed record DbFailure(string Reason) : Failure(Reason);
     public sealed record PublishFailure(string Reason) : Failure(Reason);
+    public sealed record SubmissionFailure(string Reason) : Failure(Reason);
 }

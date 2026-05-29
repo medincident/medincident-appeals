@@ -23,6 +23,20 @@ public static class OutboxEventBuilder
         };
     }
 
+    public static OutboxEntry StatusResult(Guid appealId, string? userId, AppealStatus status)
+    {
+        var payload = new AppealStatusPayload(appealId.ToString(), userId, status);
+        return new OutboxEntry
+        {
+            Id = Guid.NewGuid(),
+            AggregateId = appealId,
+            Subject = AppealsStreamConfig.ResultSubject(appealId.ToString()),
+            MsgId = $"status-{appealId}-{status}",
+            PayloadJson = JsonSerializer.Serialize(payload, JsonOptions),
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+    }
+
     public static OutboxEntry ErrorResult(Guid appealId, string? userId, string error)
     {
         var payload = new AppealErrorResult(appealId.ToString(), userId, error);

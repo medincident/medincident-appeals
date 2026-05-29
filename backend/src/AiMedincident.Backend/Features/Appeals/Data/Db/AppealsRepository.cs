@@ -1,7 +1,11 @@
+using AiMedincident.Backend.Features.Appeals.Outbox;
 using AiMedincident.Backend.Shared.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace AiMedincident.Backend.Features.Appeals.Data.Db;
+
+// Идентичность обновлённого обращения для построения SSE-status-события.
+public sealed record AppealRef(Guid Id, string? UserId);
 
 public sealed class AppealsRepository(AppDbContext db)
 {
@@ -66,6 +70,61 @@ public sealed class AppealsRepository(AppDbContext db)
         db.Set<Appeal>()
             .Where(a => a.Id == id)
             .ExecuteUpdateAsync(s => s.SetProperty(a => a.Status, status), ct);
+
+    // Сохраняет bufferId medincident-backend и переводит обращение в submitted.
+    public Task<int> SetSubmittedAsync(Guid id, Guid bufferId, CancellationToken ct = default) =>
+        db.Set<Appeal>()
+            .Where(a => a.Id == id)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.BufferId, bufferId)
+                .SetProperty(a => a.Status, AppealStatus.Submitted), ct);
+
+    // Обновляет статус по bufferId + пишет SSE-status-событие в outbox.
+    // Возвращает (appealId, userId) обновлённого обращения или null.
+    public async Task<AppealRef?> SetStatusByBufferAsync(Guid bufferId, AppealStatus status, CancellationToken ct = default)
+    {
+        var target = await FindRefAsync(a => a.BufferId == bufferId, ct);
+        if (target is null) return null;
+        await db.Set<Appeal>().Where(a => a.BufferId == bufferId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.Status, status), ct);
+        await EmitStatusAsync(target, status, ct);
+        return target;
+    }
+
+    // incident.created из нашего буфера: сохраняем incidentId и статус (accepted).
+    public async Task<AppealRef?> SetIncidentByBufferAsync(Guid bufferId, Guid incidentId, AppealStatus status, CancellationToken ct = default)
+    {
+        var target = await FindRefAsync(a => a.BufferId == bufferId, ct);
+        if (target is null) return null;
+        await db.Set<Appeal>().Where(a => a.BufferId == bufferId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.IncidentId, incidentId).SetProperty(a => a.Status, status), ct);
+        await EmitStatusAsync(target, status, ct);
+        return target;
+    }
+
+    // incident.status_changed: терминальные done/rejected → closed (по incidentId).
+    public async Task<AppealRef?> SetStatusByIncidentAsync(Guid incidentId, AppealStatus status, CancellationToken ct = default)
+    {
+        var target = await FindRefAsync(a => a.IncidentId == incidentId, ct);
+        if (target is null) return null;
+        await db.Set<Appeal>().Where(a => a.IncidentId == incidentId)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.Status, status), ct);
+        await EmitStatusAsync(target, status, ct);
+        return target;
+    }
+
+    private Task<AppealRef?> FindRefAsync(
+        System.Linq.Expressions.Expression<Func<Appeal, bool>> predicate, CancellationToken ct) =>
+        db.Set<Appeal>().AsNoTracking()
+            .Where(predicate)
+            .Select(a => new AppealRef(a.Id, a.UserId))
+            .FirstOrDefaultAsync(ct);
+
+    private async Task EmitStatusAsync(AppealRef target, AppealStatus status, CancellationToken ct)
+    {
+        db.Add(OutboxEventBuilder.StatusResult(target.Id, target.UserId, status));
+        await db.SaveChangesAsync(ct);
+    }
 
     public async Task<IReadOnlyList<Appeal>> ListAsync(ListFilter filter, CancellationToken ct = default)
     {

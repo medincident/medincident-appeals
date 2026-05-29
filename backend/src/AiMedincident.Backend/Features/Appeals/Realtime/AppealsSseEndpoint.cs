@@ -106,7 +106,13 @@ public static class AppealsSseEndpoint
                 return false;
             if (!string.Equals(u.GetString(), userId, StringComparison.Ordinal))
                 return false;
-            kind = doc.RootElement.TryGetProperty("error", out _) ? "error" : "result";
+            // error → appeal.error; status (без error) → appeal.status; иначе appeal.result.
+            if (doc.RootElement.TryGetProperty("error", out _))
+                kind = "error";
+            else if (doc.RootElement.TryGetProperty("status", out _))
+                kind = "status";
+            else
+                kind = "result";
             return true;
         }
         catch (JsonException)

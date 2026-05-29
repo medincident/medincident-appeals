@@ -31,6 +31,11 @@
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.1" />
     <PackageReference Include="Npgsql.DependencyInjection" Version="10.0.1" />
     <PackageReference Include="NATS.Net" Version="2.5.10" />
+    <PackageReference Include="Google.Protobuf" Version="3.28.3" />
+    <PackageReference Include="Grpc.Tools" Version="2.68.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.5.0" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="10.0.7" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.3" />
@@ -44,6 +49,12 @@
   <ItemGroup>
     <InternalsVisibleTo Include="AiMedincident.Backend.UnitTests" />
     <InternalsVisibleTo Include="AiMedincident.Backend.IntegrationTests" />
+  </ItemGroup>
+
+  <!-- Event-протоколы medincident-backend для десериализации NATS-событий
+       (Envelope + Any payload). Только message-типы, без gRPC-сервисов. -->
+  <ItemGroup>
+    <Protobuf Include="../../proto/**/*.proto" ProtoRoot="../../proto" GrpcServices="None" />
   </ItemGroup>
 
 </Project>

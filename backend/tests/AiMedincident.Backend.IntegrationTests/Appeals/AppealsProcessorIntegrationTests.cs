@@ -3,11 +3,13 @@ using AiMedincident.Backend.Features.Appeals.Data;
 using AiMedincident.Backend.Features.Appeals.Data.Db;
 using AiMedincident.Backend.Features.Nlp;
 using AiMedincident.Backend.Features.Nlp.Data;
+using AiMedincident.Backend.Shared.Configuration;
 using AiMedincident.Backend.Shared.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 namespace AiMedincident.Backend.IntegrationTests.Appeals;
 
@@ -34,7 +36,7 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
         await _db.Database.ExecuteSqlRawAsync("TRUNCATE appeals, outbox, appeals_dlq");
         _repo = new AppealsRepository(_db);
         _nlp = new FakeNlpClient();
-        _processor = new AppealsProcessor(_nlp, _repo, NullLogger<AppealsProcessor>.Instance);
+        _processor = new AppealsProcessor(_nlp, _repo, Options.Create(new AppOptions()), NullLogger<AppealsProcessor>.Instance);
     }
 
     public ValueTask DisposeAsync() => _db.DisposeAsync();
@@ -94,7 +96,7 @@ public sealed class AppealsProcessorIntegrationTests(PostgresFixture fixture) : 
             .UseNpgsql("Host=127.0.0.1;Port=1;Username=x;Password=x;Database=x;Timeout=1")
             .Options);
         _repo = new AppealsRepository(_db);
-        _processor = new AppealsProcessor(_nlp, _repo, NullLogger<AppealsProcessor>.Instance);
+        _processor = new AppealsProcessor(_nlp, _repo, Options.Create(new AppOptions()), NullLogger<AppealsProcessor>.Instance);
 
         var result = await _processor.ProcessAsync(submit, TestContext.Current.CancellationToken);
 
