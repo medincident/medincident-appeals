@@ -144,6 +144,28 @@ services:
       - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
+  # ── STT Service (faster-whisper, CPU) ───────────────────────────────────
+  stt-service:
+    profiles: [dev, prod]
+    build:
+      context: ./stt-service
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      STT_MODEL: ${STT_MODEL:-small}
+    volumes:
+      - stt_models:/app/models_cache
+    healthcheck:
+      <<: *default-healthcheck
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health',timeout=5).status==200 else 1)"]
+      start_period: 180s   # первая загрузка модели faster-whisper (~480MB для small)
+    networks:
+      - ai-medincident
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.scope=medincident-appeals"
+    logging: *default-logging
+
   # ── LLM Service (llama-cpp-python + Qwen3-4B GGUF) ──────────────────────
   llm-service:
     profiles: [llm]
@@ -297,6 +319,7 @@ volumes:
   postgres_data:   # appeals + любые будущие таблицы backend'а
   nats_data:       # JetStream storage — чтобы appeals не терялись при рестарте
   nlp_models:      # кэш HuggingFace моделей (~368MB)
+  stt_models:      # кэш faster-whisper моделей (~480MB для small)
   prometheus_data: # TSDB метрик (retention 7 дней)
   grafana_data:    # настройки Grafana
   frontend_debug_node_modules: # изолируем musl-бинари от bind-mount'а ./frontend

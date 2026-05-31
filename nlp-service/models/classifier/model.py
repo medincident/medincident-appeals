@@ -12,7 +12,7 @@ from paths import CACHE_DIR, TRAINED_CLASSIFIER_DIR
 
 logger = logging.getLogger(__name__)
 
-BASE_MODEL = "DeepPavlov/rubert-base-cased-conversational"
+BASE_MODEL = "cointegrated/rubert-tiny2"
 ID2LABEL = {0: "not_important", 1: "important"}
 LABEL2ID = {v: k for k, v in ID2LABEL.items()}
 

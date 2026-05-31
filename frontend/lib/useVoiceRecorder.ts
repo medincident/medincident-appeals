@@ -11,44 +11,9 @@ export type VoiceRecorderError =
   | "no_device"
   | "no_speech"
   | "aborted"
+  | "unauthorized"
   | "network"
   | "unknown"
-
-type SpeechRecognitionAlternative = { transcript: string }
-type SpeechRecognitionResult = {
-  isFinal: boolean
-  0: SpeechRecognitionAlternative
-}
-type SpeechRecognitionEventLike = {
-  resultIndex: number
-  results: ArrayLike<SpeechRecognitionResult>
-}
-type SpeechRecognitionErrorEventLike = { error: string; message?: string }
-
-interface SpeechRecognitionLike {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  maxAlternatives: number
-  onstart: (() => void) | null
-  onend: (() => void) | null
-  onerror: ((e: SpeechRecognitionErrorEventLike) => void) | null
-  onresult: ((e: SpeechRecognitionEventLike) => void) | null
-  start(): void
-  stop(): void
-  abort(): void
-}
-
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike
-
-function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
-  if (typeof window === "undefined") return null
-  const w = window as unknown as {
-    SpeechRecognition?: SpeechRecognitionCtor
-    webkitSpeechRecognition?: SpeechRecognitionCtor
-  }
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
-}
 
 interface Options {
   onTranscript: (text: string) => void
@@ -58,6 +23,8 @@ interface Options {
 
 interface Result {
   status: RecorderStatus
+  // Сохранено в интерфейсе ради совместимости с потребителем: Whisper батчевый,
+  // промежуточного текста по словам нет — всегда "".
   interimText: string
   error: VoiceRecorderError | null
   supported: boolean
@@ -66,200 +33,159 @@ interface Result {
 }
 
 const ERROR_MESSAGES: Record<VoiceRecorderError, string> = {
-  unsupported:       "Браузер не поддерживает распознавание речи",
+  unsupported:       "Браузер не поддерживает запись звука",
   insecure_context:  "Доступ к микрофону требует HTTPS",
   permission_denied: "Доступ к микрофону отклонён",
   no_device:         "Микрофон не найден",
   no_speech:         "Речь не распознана — попробуйте ещё раз",
   aborted:           "Запись отменена",
+  unauthorized:      "Сессия истекла — войдите снова",
   network:           "Сервис распознавания недоступен",
   unknown:           "Не удалось распознать речь",
 }
 
-const ERROR_CODE_MAP: Record<string, VoiceRecorderError> = {
-  "not-allowed":         "permission_denied",
-  "service-not-allowed": "permission_denied",
-  "audio-capture":       "no_device",
-  "no-speech":           "no_speech",
-  aborted:               "aborted",
-  network:               "network",
+function isRecordingSupported(): boolean {
+  if (typeof window === "undefined") return false
+  return (
+    typeof window.MediaRecorder !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia
+  )
 }
 
-// В Edge/Opera GX webkitSpeechRecognition есть, но без доступа к Google
-// cloud SR.start() возвращается без throw, а onstart никогда не приходит —
-// кнопка зависает в loading. Таймаут выводит из этого состояния.
-const START_TIMEOUT_MS = 5_000
+// Бросаем код ошибки строкой — вызывающий маппит его в VoiceRecorderError,
+// чтобы протухшая сессия (401) не выглядела как «сервис недоступен».
+async function uploadForTranscription(blob: Blob): Promise<string> {
+  const form = new FormData()
+  form.append("audio", blob, "recording.webm")
+  const res = await fetch("/api/stt", { method: "POST", body: form })
+  if (res.status === 401) throw new Error("unauthorized")
+  if (!res.ok) throw new Error("network")
+  const { text } = (await res.json()) as { text: string }
+  return text.trim()
+}
 
-export function useVoiceRecorder({
-  onTranscript,
-  onError,
-  lang = "ru-RU",
-}: Options): Result {
+export function useVoiceRecorder({ onTranscript, onError }: Options): Result {
   const [status, setStatus] = useState<RecorderStatus>("idle")
-  const [interimText, setInterimText] = useState("")
   const [error, setError] = useState<VoiceRecorderError | null>(null)
   const supported = useSyncExternalStore(
     () => () => {},
-    () => getSpeechRecognitionCtor() !== null,
+    () => isRecordingSupported(),
     () => false,
   )
 
-  const recogRef = useRef<SpeechRecognitionLike | null>(null)
-  const startTimerRef = useRef<number | null>(null)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream | null>(null)
+  // Останавливаемся по нажатию "Отменить" — тогда результат не транскрибируем.
+  const cancelledRef = useRef(false)
 
-  const clearStartTimer = useCallback(() => {
-    if (startTimerRef.current !== null) {
-      window.clearTimeout(startTimerRef.current)
-      startTimerRef.current = null
-    }
+  const stopTracks = useCallback(() => {
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
   }, [])
 
   const fail = useCallback(
     (code: VoiceRecorderError, message: string) => {
-      clearStartTimer()
       setError(code)
       setStatus("error")
       onError?.(code, message)
       setTimeout(() => setStatus("idle"), 1500)
     },
-    [onError, clearStartTimer],
+    [onError],
   )
 
   const start = useCallback(async () => {
-    if (recogRef.current) return
+    if (recorderRef.current) return
 
     if (typeof window !== "undefined" && window.isSecureContext === false) {
       fail("insecure_context", ERROR_MESSAGES.insecure_context)
       return
     }
-
-    const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor) {
+    if (!isRecordingSupported()) {
       fail("unsupported", ERROR_MESSAGES.unsupported)
       return
     }
 
     setError(null)
-    setInterimText("")
-    setStatus("loading")
+    cancelledRef.current = false
 
-    // getUserMedia должен быть вызван синхронно в обработчике клика, до любых
-    // await — иначе iOS Safari и часть Android Chrome теряют связку с
-    // user-gesture и молча отклоняют доступ без prompt'а.
-    let gumPromise: Promise<MediaStream> | null = null
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        gumPromise = navigator.mediaDevices.getUserMedia({ audio: true })
-      } catch {
-        fail("permission_denied", ERROR_MESSAGES.permission_denied)
-        return
-      }
-    }
-
-    if (gumPromise) {
-      try {
-        const stream = await gumPromise
-        stream.getTracks().forEach((t) => t.stop())
-      } catch (err) {
-        const name = (err as DOMException)?.name
-        const message = (err as DOMException)?.message
-        if (name === "NotAllowedError" || name === "SecurityError") {
-          fail("permission_denied", ERROR_MESSAGES.permission_denied)
-          return
-        }
-        if (name === "NotFoundError" || name === "OverconstrainedError") {
-          fail("no_device", ERROR_MESSAGES.no_device)
-          return
-        }
-        fail("unknown", message || ERROR_MESSAGES.unknown)
-        return
-      }
-    }
-
-    const rec = new Ctor()
-    rec.lang = lang
-    rec.continuous = true
-    rec.interimResults = true
-    rec.maxAlternatives = 1
-
-    rec.onstart = () => {
-      clearStartTimer()
-      setStatus("recording")
-    }
-
-    rec.onresult = (e) => {
-      let interim = ""
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const res = e.results[i]
-        const transcript = res[0].transcript
-        if (res.isFinal) {
-          const text = transcript.trim()
-          if (text) onTranscript(text)
-        } else {
-          interim += transcript
-        }
-      }
-      setInterimText(interim)
-    }
-
-    rec.onerror = (e) => {
-      const code = ERROR_CODE_MAP[e.error] ?? "unknown"
-      if (code === "aborted") return
-      fail(code, ERROR_MESSAGES[code])
-    }
-
-    rec.onend = () => {
-      clearStartTimer()
-      recogRef.current = null
-      setInterimText("")
-      setStatus((prev) => (prev === "error" ? prev : "idle"))
-    }
-
-    recogRef.current = rec
+    let stream: MediaStream
     try {
-      rec.start()
-      startTimerRef.current = window.setTimeout(() => {
-        startTimerRef.current = null
-        if (recogRef.current !== rec) return
-        try { rec.abort() } catch {}
-        recogRef.current = null
-        fail("network", ERROR_MESSAGES.network)
-      }, START_TIMEOUT_MS)
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
     } catch (err) {
-      recogRef.current = null
-      fail("unknown", (err as Error).message || "Не удалось запустить запись")
+      const name = (err as DOMException)?.name
+      if (name === "NotAllowedError" || name === "SecurityError") {
+        fail("permission_denied", ERROR_MESSAGES.permission_denied)
+      } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+        fail("no_device", ERROR_MESSAGES.no_device)
+      } else {
+        fail("unknown", (err as Error)?.message || ERROR_MESSAGES.unknown)
+      }
+      return
     }
-  }, [fail, lang, onTranscript, clearStartTimer])
+
+    streamRef.current = stream
+    chunksRef.current = []
+
+    const recorder = new MediaRecorder(stream)
+    recorderRef.current = recorder
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data)
+    }
+
+    recorder.onstop = async () => {
+      stopTracks()
+      recorderRef.current = null
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" })
+      chunksRef.current = []
+
+      if (cancelledRef.current || blob.size === 0) {
+        setStatus((prev) => (prev === "error" ? prev : "idle"))
+        return
+      }
+
+      setStatus("loading")
+      try {
+        const text = await uploadForTranscription(blob)
+        if (text) onTranscript(text)
+        else fail("no_speech", ERROR_MESSAGES.no_speech)
+        setStatus((prev) => (prev === "error" ? prev : "idle"))
+      } catch (err) {
+        const code: VoiceRecorderError = (err as Error)?.message === "unauthorized" ? "unauthorized" : "network"
+        fail(code, ERROR_MESSAGES[code])
+      }
+    }
+
+    try {
+      recorder.start()
+      setStatus("recording")
+    } catch (err) {
+      stopTracks()
+      recorderRef.current = null
+      fail("unknown", (err as Error)?.message || ERROR_MESSAGES.unknown)
+    }
+  }, [fail, onTranscript, stopTracks])
 
   const stop = useCallback(() => {
-    clearStartTimer()
-    const rec = recogRef.current
-    if (!rec) {
-      setInterimText("")
+    const recorder = recorderRef.current
+    if (!recorder) {
       setStatus((prev) => (prev === "error" ? prev : "idle"))
       return
     }
-    try {
-      rec.stop()
-    } catch {
-      try { rec.abort() } catch {}
-      recogRef.current = null
-      setInterimText("")
-      setStatus((prev) => (prev === "error" ? prev : "idle"))
-    }
-  }, [clearStartTimer])
+    // onstop сам разрулит загрузку/очистку — здесь только инициируем остановку.
+    if (recorder.state !== "inactive") recorder.stop()
+  }, [])
 
   useEffect(
     () => () => {
-      if (startTimerRef.current !== null) {
-        window.clearTimeout(startTimerRef.current)
-        startTimerRef.current = null
-      }
-      recogRef.current?.abort()
-      recogRef.current = null
+      const recorder = recorderRef.current
+      if (recorder && recorder.state !== "inactive") recorder.stop()
+      streamRef.current?.getTracks().forEach((t) => t.stop())
     },
     [],
   )
 
-  return { status, interimText, error, supported, start, stop }
+  return { status, interimText: "", error, supported, start, stop }
 }

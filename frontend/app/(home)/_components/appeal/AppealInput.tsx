@@ -30,15 +30,12 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
     })
 
     const recording = voice.status === "recording"
-    const loadingVoice = voice.status === "loading"
-    const displayValue = recording && voice.interimText
-      ? [value, voice.interimText].filter(Boolean).join(" ")
-      : value
+    const transcribing = voice.status === "loading"
 
     const handleSubmit = React.useCallback(() => {
-      if (recording || loadingVoice) voice.stop()
+      if (recording || transcribing) voice.stop()
       onSubmit()
-    }, [recording, loadingVoice, voice, onSubmit])
+    }, [recording, transcribing, voice, onSubmit])
 
     return (
       <div className="flex flex-col gap-2">
@@ -54,7 +51,7 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
             rows={3}
             className="w-full resize-none bg-transparent px-4 py-3 text-base sm:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none leading-relaxed"
             placeholder="Расскажите, что произошло…"
-            value={displayValue}
+            value={value}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -63,7 +60,7 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
               }
             }}
             disabled={submitting}
-            readOnly={recording}
+            readOnly={recording || transcribing}
             suppressHydrationWarning
           />
           <div className="flex items-center justify-between px-4 py-2 border-t border-border/60 text-[10px] text-muted-foreground">
@@ -73,10 +70,10 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
                   <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse" />
                   идёт запись — говорите
                 </span>
-              ) : loadingVoice ? (
+              ) : transcribing ? (
                 <span className="inline-flex items-center gap-1.5">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  подключение к распознаванию…
+                  распознаю речь…
                 </span>
               ) : (
                 <>
@@ -90,8 +87,8 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
             <span className="sm:hidden">
               {recording
                 ? "Запись — говорите"
-                : loadingVoice
-                  ? "Подключение…"
+                : transcribing
+                  ? "Распознаю…"
                   : "Нажмите «Отправить», когда готово"}
             </span>
             <span className={cn("tabular-nums", overLimit && "text-destructive font-medium")}>
@@ -107,25 +104,26 @@ export const AppealInput = React.forwardRef<HTMLTextAreaElement, AppealInputProp
               <Button
                 type="button"
                 size="sm"
-                variant={recording || loadingVoice ? "destructive" : "secondary"}
+                variant={recording ? "destructive" : "secondary"}
                 className="h-8 px-5 gap-1.5"
-                disabled={submitting}
-                onClick={recording || loadingVoice ? voice.stop : voice.start}
+                // Во время распознавания запись уже завершена — отменять нечего, ждём текст.
+                disabled={submitting || transcribing}
+                onClick={recording ? voice.stop : voice.start}
                 aria-label={
-                  loadingVoice
-                    ? "Отменить подключение"
+                  transcribing
+                    ? "Распознаю речь"
                     : recording
                       ? "Остановить запись"
                       : "Записать голосом"
                 }
                 suppressHydrationWarning
               >
-                {loadingVoice
+                {transcribing
                   ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   : recording
                     ? <Square className="h-3.5 w-3.5" />
                     : <Mic className="h-3.5 w-3.5" />}
-                {loadingVoice ? "Отменить" : recording ? "Остановить" : "Диктовать"}
+                {transcribing ? "Распознаю…" : recording ? "Остановить" : "Диктовать"}
               </Button>
             )}
             <Button
