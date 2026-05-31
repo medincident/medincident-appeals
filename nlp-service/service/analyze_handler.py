@@ -36,7 +36,7 @@ async def subscribe_analyze(
             payload = json.loads(msg.data) if msg.data else {}
             text = (payload.get("text") or "").strip()
             if not text:
-                await msg.respond(b"", headers={ERROR_HEADER: "text must not be empty"})
+                await nc.publish(msg.reply, b"", headers={ERROR_HEADER: "text must not be empty"})
                 return
 
             categories: list[dict[str, Any]] | None = payload.get("categories")
@@ -56,8 +56,10 @@ async def subscribe_analyze(
                 except Exception as exc:
                     logger.exception("pipeline failed for nlp.analyze")
                     pipeline_requests_total.labels(outcome="error").inc()
-                    await msg.respond(
-                        b"", headers={ERROR_HEADER: f"pipeline error: {type(exc).__name__}"}
+                    await nc.publish(
+                        msg.reply,
+                        b"",
+                        headers={ERROR_HEADER: f"pipeline error: {type(exc).__name__}"},
                     )
                     return
 
@@ -66,11 +68,11 @@ async def subscribe_analyze(
             classifier_predictions_total.labels(label=outcome).inc()
             await msg.respond(json.dumps(result).encode())
         except json.JSONDecodeError:
-            await msg.respond(b"", headers={ERROR_HEADER: "invalid json"})
+            await nc.publish(msg.reply, b"", headers={ERROR_HEADER: "invalid json"})
         except Exception:
             logger.exception("nlp.analyze handler crashed")
             with contextlib.suppress(Exception):
-                await msg.respond(b"", headers={ERROR_HEADER: "internal error"})
+                await nc.publish(msg.reply, b"", headers={ERROR_HEADER: "internal error"})
 
     sub = await nc.subscribe(ANALYZE_SUBJECT, queue=QUEUE_GROUP, cb=handle)
     logger.info("Subscribed to %s (queue=%s)", ANALYZE_SUBJECT, QUEUE_GROUP)

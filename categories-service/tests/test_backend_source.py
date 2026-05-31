@@ -2,11 +2,11 @@ import pytest
 
 from generated.backend.models.classifier_v1_type import ClassifierV1Type
 from generated.backend.models.v1_category import V1Category
-from generated.backend.models.v1_list_patient_allowed_types_by_organization_response import (
-    V1ListPatientAllowedTypesByOrganizationResponse,
+from generated.backend.models.v1_list_categories_by_organization_response import (
+    V1ListCategoriesByOrganizationResponse,
 )
-from generated.backend.models.v1_list_patient_visible_categories_by_organization_response import (
-    V1ListPatientVisibleCategoriesByOrganizationResponse,
+from generated.backend.models.v1_list_types_by_organization_response import (
+    V1ListTypesByOrganizationResponse,
 )
 from service import sources
 from service.sources import BackendCategorySource
@@ -33,13 +33,13 @@ def _patch_apis(monkeypatch, cat_pages, type_pages):
     cat_iter = iter(cat_pages)
     type_iter = iter(type_pages)
 
-    async def fake_cat_asyncio(*, organization_id, client, limit, after):
+    async def fake_cat_asyncio(*, organization_id, client, limit, after, **kwargs):
         items, nxt = next(cat_iter)
-        return V1ListPatientVisibleCategoriesByOrganizationResponse(items=items, next_cursor=nxt)
+        return V1ListCategoriesByOrganizationResponse(items=items, next_cursor=nxt)
 
-    async def fake_type_asyncio(*, organization_id, client, limit, after):
+    async def fake_type_asyncio(*, organization_id, client, limit, after, **kwargs):
         items, nxt = next(type_iter)
-        return V1ListPatientAllowedTypesByOrganizationResponse(items=items, next_cursor=nxt)
+        return V1ListTypesByOrganizationResponse(items=items, next_cursor=nxt)
 
     monkeypatch.setattr(sources.categories_api, "asyncio", fake_cat_asyncio)
     monkeypatch.setattr(sources.types_api, "asyncio", fake_type_asyncio)

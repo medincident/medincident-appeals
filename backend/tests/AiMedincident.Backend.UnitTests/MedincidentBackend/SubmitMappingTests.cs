@@ -6,18 +6,37 @@ namespace AiMedincident.Backend.UnitTests.MedincidentBackend;
 public class SubmitMappingTests
 {
     [Fact]
-    public void Description_uses_formalized_text_when_present()
+    public void Description_is_patient_original_text()
     {
-        var nlp = new NlpAnalyzeResponse { FormalizedText = "formalized" };
-        SubmitMapping.Description(nlp, "original").Should().Be("formalized");
+        // По контракту gateway description = исходный текст пациента, НЕ формализация.
+        SubmitMapping.Description("original patient text").Should().Be("original patient text");
     }
 
     [Fact]
-    public void Description_falls_back_to_original_when_no_formalized()
+    public void Summary_uses_formalized_text_else_falls_back_to_original()
     {
-        SubmitMapping.Description(new NlpAnalyzeResponse { FormalizedText = "" }, "original")
+        var nlp = new NlpAnalyzeResponse { FormalizedText = "formalized" };
+        SubmitMapping.Summary(nlp, "original").Should().Be("formalized");
+        SubmitMapping.Summary(new NlpAnalyzeResponse { FormalizedText = "" }, "original")
             .Should().Be("original");
-        SubmitMapping.Description(null, "original").Should().Be("original");
+        SubmitMapping.Summary(null, "original").Should().Be("original");
+    }
+
+    [Fact]
+    public void OccurredAt_formats_valid_date_and_nulls_invalid()
+    {
+        SubmitMapping.OccurredAt("2026-05-31T09:48:46.1234567+00:00").Should().NotBeNull();
+        SubmitMapping.OccurredAt(null).Should().BeNull();
+        SubmitMapping.OccurredAt("").Should().BeNull();
+        SubmitMapping.OccurredAt("not-a-date").Should().BeNull();
+    }
+
+    [Fact]
+    public void Priority_high_when_important_else_normal()
+    {
+        SubmitMapping.Priority(new NlpAnalyzeResponse { IsImportant = true }).Should().Be("BUFFER_PRIORITY_HIGH");
+        SubmitMapping.Priority(new NlpAnalyzeResponse { IsImportant = false }).Should().Be("BUFFER_PRIORITY_NORMAL");
+        SubmitMapping.Priority(null).Should().Be("BUFFER_PRIORITY_NORMAL");
     }
 
     [Fact]

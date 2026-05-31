@@ -5,10 +5,10 @@ from typing import Protocol
 
 from generated.backend import AuthenticatedClient
 from generated.backend.api.incident_classifier_query import (
-    incident_classifier_query_list_patient_allowed_types_by_organization as types_api,
+    incident_classifier_query_list_types_by_organization as types_api,
 )
 from generated.backend.api.incident_classifier_query import (
-    incident_classifier_query_list_patient_visible_categories_by_organization as categories_api,
+    incident_classifier_query_list_categories_by_organization as categories_api,
 )
 from generated.backend.types import UNSET
 
@@ -44,8 +44,10 @@ class BackendCategorySource:
     сгенерированный OpenAPI-клиент и собирает дерево category→subcategories.
 
     Эндпоинты:
-      incident-categories:patient-visible, incident-types:patient-allowed —
-      backend сам отдаёт только patient-видимое; build_tree фильтрует повторно.
+      incident-categories:all (ListCategoriesByOrganization),
+      incident-types (ListTypesByOrganization) — backend сам отдаёт пациенту
+      только patient-видимое (фильтр по роли вызывающего); build_tree фильтрует
+      повторно.
     """
 
     def __init__(

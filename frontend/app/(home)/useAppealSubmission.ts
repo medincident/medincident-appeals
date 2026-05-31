@@ -82,13 +82,18 @@ export function useAppealSubmission() {
     setSubmitting(true)
     setSubmission({ kind: "idle" })
 
+    console.log(`[appeals] submit: start (online=${online}, textLen=${trimmed.length})`)
+
     try {
       if (!online) {
+        console.log("[appeals] submit: offline → enqueue")
         await enqueueAndNotify(trimmed, "Отправим автоматически, когда появится интернет.")
         return
       }
 
+      console.log("[appeals] submit: online → calling createAppealAction (server action)")
       const appeal = await createAppealAction(trimmed)
+      console.log(`[appeals] submit: server action returned (appealId=${appeal.id})`)
       await mutateAppeals()
 
       setText("")

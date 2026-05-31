@@ -58,6 +58,10 @@ async function submitViaBackend(
   idempotencyKey: string,
 ): Promise<BackendSubmitResponse> {
   const url = `${BACKEND_URL}/api/v1/users/${encodeURIComponent(userId)}/appeals`
+  console.log(
+    `[appeals] submitViaBackend → POST ${url} (textLen=${text.length}, idempotencyKey=${idempotencyKey})`,
+  )
+  const startedAt = performance.now()
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -68,6 +72,9 @@ async function submitViaBackend(
     signal: AbortSignal.timeout(10_000),
     cache: "no-store",
   })
+  console.log(
+    `[appeals] submitViaBackend ← ${res.status} ${res.statusText} (${Math.round(performance.now() - startedAt)}ms)`,
+  )
 
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) {
@@ -129,7 +136,12 @@ export async function createAppealAction(
   const trimmed = text.trim()
   if (!trimmed) throw new Error("Текст обращения не может быть пустым")
 
+  console.log(
+    `[appeals] createAppealAction: start (textLen=${trimmed.length}, hasIdempotencyKey=${idempotencyKey != null})`,
+  )
+
   const session = await requireSession()
+  console.log(`[appeals] createAppealAction: session resolved (userId=${session.userId})`)
 
   const submitted = await submitViaBackend(
     trimmed,
@@ -137,6 +149,7 @@ export async function createAppealAction(
     session.accessToken,
     idempotencyKey ?? randomUUID(),
   )
+  console.log(`[appeals] createAppealAction: backend accepted (appealId=${submitted.id})`)
 
   const appeal: Appeal = {
     id: submitted.id,

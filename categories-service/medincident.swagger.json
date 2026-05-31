@@ -648,6 +648,138 @@
         ]
       }
     },
+    "/v1/clinics/{clinicId}": {
+      "delete": {
+        "operationId": "OrgStructureCommandService_DeleteClinic",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteClinicResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `clinic_not_found` — clinic with the given ID does not exist.",
+            "schema": {}
+          },
+          "409": {
+            "description": "Conflict. Error codes:\n- `clinic_delete_has_dependents` — clinic has associated incidents or service requests.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clinicId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
+    "/v1/clinics/{clinicId}/activate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_ActivateClinic",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ActivateClinicResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `clinic_not_found` — clinic with the given ID does not exist.",
+            "schema": {}
+          },
+          "422": {
+            "description": "Business rule violation. Error codes:\n- `clinic_activate_parent_inactive` — parent organization is inactive.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clinicId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceActivateClinicBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
     "/v1/clinics/{clinicId}/candidates:clinic-head": {
       "get": {
         "operationId": "MembershipQueryService_ListCandidatesForClinicHead",
@@ -718,6 +850,72 @@
         ]
       }
     },
+    "/v1/clinics/{clinicId}/deactivate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_DeactivateClinic",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeactivateClinicResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `clinic_not_found` — clinic with the given ID does not exist.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "clinicId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceDeactivateClinicBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
     "/v1/clinics/{clinicId}/departments": {
       "get": {
         "operationId": "OrgStructureQueryService_ListDepartmentsByClinic",
@@ -739,10 +937,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -776,6 +972,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -876,10 +1078,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `department_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -988,10 +1188,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -1046,6 +1244,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "description": "When false (default), only active employees are returned. Set true\nto include deactivated employees. Requires org-admin or system-admin.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -1082,10 +1287,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `employee_card_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -1157,10 +1360,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `role_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -1550,10 +1751,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `stats_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -1633,6 +1832,138 @@
         ]
       }
     },
+    "/v1/departments/{departmentId}": {
+      "delete": {
+        "operationId": "OrgStructureCommandService_DeleteDepartment",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteDepartmentResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `department_not_found` — department with the given ID does not exist.",
+            "schema": {}
+          },
+          "409": {
+            "description": "Conflict. Error codes:\n- `department_delete_has_dependents` — department has associated incidents or service requests.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
+    "/v1/departments/{departmentId}/activate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_ActivateDepartment",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ActivateDepartmentResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `department_not_found` — department with the given ID does not exist.",
+            "schema": {}
+          },
+          "422": {
+            "description": "Business rule violation. Error codes:\n- `department_activate_parent_inactive` — parent clinic is inactive.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceActivateDepartmentBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
     "/v1/departments/{departmentId}/candidates:dept-responsible": {
       "get": {
         "operationId": "MembershipQueryService_ListCandidatesForDeptResponsible",
@@ -1700,6 +2031,72 @@
         ],
         "tags": [
           "MembershipQueryService"
+        ]
+      }
+    },
+    "/v1/departments/{departmentId}/deactivate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_DeactivateDepartment",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeactivateDepartmentResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `department_not_found` — department with the given ID does not exist.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "departmentId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceDeactivateDepartmentBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
         ]
       }
     },
@@ -1790,10 +2187,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -1848,6 +2243,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "description": "When false (default), only active employees are returned. Set true\nto include deactivated employees. Requires org-admin or system-admin.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -1884,10 +2286,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `employee_card_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -1959,10 +2359,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `role_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -2286,10 +2684,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `stats_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -2438,6 +2834,56 @@
         ]
       }
     },
+    "/v1/employees/me": {
+      "get": {
+        "operationId": "MembershipQueryService_GetMyEmployee",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1GetMyEmployeeResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `employee_card_not_found` — the authenticated user has no employee record.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "tags": [
+          "MembershipQueryService"
+        ]
+      }
+    },
     "/v1/employees/{employeeId}": {
       "delete": {
         "operationId": "MembershipCommandService_TerminateEmployee",
@@ -2489,6 +2935,142 @@
             "in": "path",
             "required": true,
             "type": "string"
+          }
+        ],
+        "tags": [
+          "MembershipCommandService"
+        ]
+      }
+    },
+    "/v1/employees/{employeeId}/activate": {
+      "post": {
+        "operationId": "MembershipCommandService_ActivateEmployee",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ActivateEmployeeResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `employee_not_found` — employee with the given ID does not exist.",
+            "schema": {}
+          },
+          "422": {
+            "description": "Business rule violation. Error codes:\n- `employee_activate_parent_inactive` — parent department is inactive.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "employeeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MembershipCommandServiceActivateEmployeeBody"
+            }
+          }
+        ],
+        "tags": [
+          "MembershipCommandService"
+        ]
+      }
+    },
+    "/v1/employees/{employeeId}/deactivate": {
+      "post": {
+        "operationId": "MembershipCommandService_DeactivateEmployee",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeactivateEmployeeResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `employee_not_found` — employee with the given ID does not exist.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "employeeId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/MembershipCommandServiceDeactivateEmployeeBody"
+            }
           }
         ],
         "tags": [
@@ -2793,10 +3375,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `vacation_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -3223,10 +3803,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -3260,6 +3838,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -3497,10 +4081,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `incident_category_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -4513,10 +5095,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `self_identity_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -4678,10 +5258,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `self_orgs_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -4834,10 +5412,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -4866,6 +5442,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -4900,10 +5482,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `organization_id_generation_failed` — failed to generate a new organization ID.\n- `organization_save_failed` — database write failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -4982,6 +5562,134 @@
         ],
         "tags": [
           "OrgStructureQueryService"
+        ]
+      }
+    },
+    "/v1/organizations/{organizationId}": {
+      "delete": {
+        "operationId": "OrgStructureCommandService_DeleteOrganization",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeleteOrganizationResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `organization_not_found` — organization with the given ID does not exist.",
+            "schema": {}
+          },
+          "409": {
+            "description": "Conflict. Error codes:\n- `organization_delete_has_dependents` — organization has associated incidents or service requests.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
+        ]
+      }
+    },
+    "/v1/organizations/{organizationId}/activate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_ActivateOrganization",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1ActivateOrganizationResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `organization_not_found` — organization with the given ID does not exist.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceActivateOrganizationBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
         ]
       }
     },
@@ -5624,10 +6332,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -5661,6 +6367,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -5761,10 +6473,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `clinic_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -5783,6 +6493,72 @@
         ],
         "tags": [
           "OrgStructureQueryService"
+        ]
+      }
+    },
+    "/v1/organizations/{organizationId}/deactivate": {
+      "post": {
+        "operationId": "OrgStructureCommandService_DeactivateOrganization",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/v1DeactivateOrganizationResponse"
+            }
+          },
+          "400": {
+            "description": "Validation failed or invalid input.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthenticated — missing or invalid token.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Permission denied.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not found. Error codes:\n- `organization_not_found` — organization with the given ID does not exist.",
+            "schema": {}
+          },
+          "500": {
+            "description": "Unexpected server error.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/v1ErrorResponse"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "organizationId",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/OrgStructureCommandServiceDeactivateOrganizationBody"
+            }
+          }
+        ],
+        "tags": [
+          "OrgStructureCommandService"
         ]
       }
     },
@@ -6209,10 +6985,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -6267,6 +7041,13 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "description": "When false (default), only active employees are returned. Set true\nto include deactivated employees. Requires org-admin or system-admin.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -6303,10 +7084,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `employee_card_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -6780,12 +7559,12 @@
     },
     "/v1/organizations/{organizationId}/incident-categories": {
       "get": {
-        "operationId": "IncidentClassifierQueryService_ListCategoriesByOrganization",
+        "operationId": "IncidentClassifierQueryService_ListRootCategories",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/v1ListCategoriesByOrganizationResponse"
+              "$ref": "#/definitions/v1ListRootCategoriesResponse"
             }
           },
           "400": {
@@ -6799,10 +7578,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -6836,6 +7613,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -6916,14 +7699,14 @@
         ]
       }
     },
-    "/v1/organizations/{organizationId}/incident-categories:patient-visible": {
+    "/v1/organizations/{organizationId}/incident-categories:all": {
       "get": {
-        "operationId": "IncidentClassifierQueryService_ListPatientVisibleCategoriesByOrganization",
+        "operationId": "IncidentClassifierQueryService_ListCategoriesByOrganization",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/v1ListPatientVisibleCategoriesByOrganizationResponse"
+              "$ref": "#/definitions/v1ListCategoriesByOrganizationResponse"
             }
           },
           "400": {
@@ -6937,10 +7720,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -6974,6 +7755,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -6981,14 +7768,14 @@
         ]
       }
     },
-    "/v1/organizations/{organizationId}/incident-categories:roots": {
+    "/v1/organizations/{organizationId}/incident-types": {
       "get": {
-        "operationId": "IncidentClassifierQueryService_ListActiveRootCategories",
+        "operationId": "IncidentClassifierQueryService_ListTypesByOrganization",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/v1ListActiveRootCategoriesResponse"
+              "$ref": "#/definitions/v1ListTypesByOrganizationResponse"
             }
           },
           "400": {
@@ -7002,10 +7789,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -7039,137 +7824,12 @@
             "in": "query",
             "required": false,
             "type": "string"
-          }
-        ],
-        "tags": [
-          "IncidentClassifierQueryService"
-        ]
-      }
-    },
-    "/v1/organizations/{organizationId}/incident-types:active": {
-      "get": {
-        "operationId": "IncidentClassifierQueryService_ListActiveTypesByOrganization",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1ListActiveTypesByOrganizationResponse"
-            }
-          },
-          "400": {
-            "description": "Validation failed. Error codes:\n- `incident_classifier_bad_cursor` — pagination cursor is invalid or malformed.",
-            "schema": {}
-          },
-          "401": {
-            "description": "Unauthenticated — missing or invalid token.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "organizationId",
-            "in": "path",
-            "required": true,
-            "type": "string"
           },
           {
-            "name": "limit",
+            "name": "includeDeactivated",
             "in": "query",
             "required": false,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "IncidentClassifierQueryService"
-        ]
-      }
-    },
-    "/v1/organizations/{organizationId}/incident-types:patient-allowed": {
-      "get": {
-        "summary": "Patient-facing reads. These are scoped to one organisation and return\nonly the slice of the classifier that a patient may see when filing\nan incident.",
-        "operationId": "IncidentClassifierQueryService_ListPatientAllowedTypesByOrganization",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1ListPatientAllowedTypesByOrganizationResponse"
-            }
-          },
-          "400": {
-            "description": "Validation failed. Error codes:\n- `incident_classifier_bad_cursor` — pagination cursor is invalid or malformed.",
-            "schema": {}
-          },
-          "401": {
-            "description": "Unauthenticated — missing or invalid token.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "organizationId",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "type": "string"
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -7264,10 +7924,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -7301,6 +7959,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -7369,71 +8033,6 @@
         ],
         "tags": [
           "RequestClassifierCommandService"
-        ]
-      }
-    },
-    "/v1/organizations/{organizationId}/request-types:active": {
-      "get": {
-        "operationId": "RequestClassifierQueryService_ListActiveRequestTypesByOrganization",
-        "responses": {
-          "200": {
-            "description": "A successful response.",
-            "schema": {
-              "$ref": "#/definitions/v1ListActiveRequestTypesByOrganizationResponse"
-            }
-          },
-          "400": {
-            "description": "Validation failed. Error codes:\n- `request_classifier_bad_cursor` — pagination cursor is invalid or malformed.",
-            "schema": {}
-          },
-          "401": {
-            "description": "Unauthenticated — missing or invalid token.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "organizationId",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "type": "integer",
-            "format": "int32"
-          },
-          {
-            "name": "after",
-            "in": "query",
-            "required": false,
-            "type": "string"
-          }
-        ],
-        "tags": [
-          "RequestClassifierQueryService"
         ]
       }
     },
@@ -7531,10 +8130,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `stats_load_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -7585,10 +8182,8 @@
             }
           },
           "500": {
-            "description": "Unexpected server error.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Internal server error. Error codes:\n- `organization_count_failed` — database query failed.",
+            "schema": {}
           },
           "default": {
             "description": "An unexpected error response.",
@@ -7623,10 +8218,8 @@
             }
           },
           "403": {
-            "description": "Permission denied.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Permission denied. Error codes:\n- `permission_denied` — include_deactivated=true requires org-admin or system-admin privileges.",
+            "schema": {}
           },
           "500": {
             "description": "Unexpected server error.",
@@ -7660,6 +8253,12 @@
             "in": "query",
             "required": false,
             "type": "string"
+          },
+          {
+            "name": "includeDeactivated",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -8056,10 +8655,8 @@
             }
           },
           "400": {
-            "description": "Validation failed or invalid input.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Validation failed. Error codes:\n- `announcement_query_bad_cursor` — pagination cursor is invalid or malformed.",
+            "schema": {}
           },
           "401": {
             "description": "Unauthenticated — missing or invalid token.",
@@ -8141,10 +8738,8 @@
             }
           },
           "400": {
-            "description": "Validation failed or invalid input.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Validation failed. Error codes:\n- `announcement_query_bad_cursor` — pagination cursor is invalid or malformed.",
+            "schema": {}
           },
           "401": {
             "description": "Unauthenticated — missing or invalid token.",
@@ -8401,10 +8996,8 @@
             }
           },
           "400": {
-            "description": "Validation failed or invalid input.",
-            "schema": {
-              "$ref": "#/definitions/v1ErrorResponse"
-            }
+            "description": "Validation failed. Error codes:\n- `announcement_query_bad_cursor` — pagination cursor is invalid or malformed.",
+            "schema": {}
           },
           "401": {
             "description": "Unauthenticated — missing or invalid token.",
@@ -10012,6 +10605,12 @@
         },
         "occurredAt": {
           "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/definitions/v1BufferPriority"
         }
       }
     },
@@ -10124,6 +10723,9 @@
         "newStatus"
       ]
     },
+    "MembershipCommandServiceActivateEmployeeBody": {
+      "type": "object"
+    },
     "MembershipCommandServiceAssignClinicHeadBody": {
       "type": "object",
       "properties": {
@@ -10234,6 +10836,9 @@
         "deputyEmployeeId"
       ]
     },
+    "MembershipCommandServiceDeactivateEmployeeBody": {
+      "type": "object"
+    },
     "MembershipCommandServiceScheduleVacationBody": {
       "type": "object",
       "properties": {
@@ -10290,6 +10895,15 @@
         "endsAt"
       ]
     },
+    "OrgStructureCommandServiceActivateClinicBody": {
+      "type": "object"
+    },
+    "OrgStructureCommandServiceActivateDepartmentBody": {
+      "type": "object"
+    },
+    "OrgStructureCommandServiceActivateOrganizationBody": {
+      "type": "object"
+    },
     "OrgStructureCommandServiceCreateClinicBody": {
       "type": "object",
       "properties": {
@@ -10321,6 +10935,15 @@
       "required": [
         "name"
       ]
+    },
+    "OrgStructureCommandServiceDeactivateClinicBody": {
+      "type": "object"
+    },
+    "OrgStructureCommandServiceDeactivateDepartmentBody": {
+      "type": "object"
+    },
+    "OrgStructureCommandServiceDeactivateOrganizationBody": {
+      "type": "object"
     },
     "OrgStructureCommandServiceUpdateClinicDetailsBody": {
       "type": "object",
@@ -10634,6 +11257,18 @@
         }
       }
     },
+    "v1ActivateClinicResponse": {
+      "type": "object"
+    },
+    "v1ActivateDepartmentResponse": {
+      "type": "object"
+    },
+    "v1ActivateEmployeeResponse": {
+      "type": "object"
+    },
+    "v1ActivateOrganizationResponse": {
+      "type": "object"
+    },
     "v1ActorView": {
       "type": "object",
       "properties": {
@@ -10789,8 +11424,24 @@
         "patientStatus": {
           "$ref": "#/definitions/v1PatientStatus",
           "description": "Populated only for patient callers."
+        },
+        "summary": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "title": "\"normal\" or \"high\""
         }
       }
+    },
+    "v1BufferPriority": {
+      "type": "string",
+      "enum": [
+        "BUFFER_PRIORITY_UNSPECIFIED",
+        "BUFFER_PRIORITY_NORMAL",
+        "BUFFER_PRIORITY_HIGH"
+      ],
+      "default": "BUFFER_PRIORITY_UNSPECIFIED"
     },
     "v1BufferStatus": {
       "type": "string",
@@ -10875,6 +11526,9 @@
         "physicalAddress": {
           "$ref": "#/definitions/queryOrgstructureV1Address"
         },
+        "isActive": {
+          "type": "boolean"
+        },
         "createdAt": {
           "type": "string"
         },
@@ -10895,6 +11549,9 @@
         },
         "name": {
           "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
         }
       },
       "description": "ClinicListItem is the minimal shape returned by list endpoints."
@@ -11168,19 +11825,40 @@
         }
       }
     },
+    "v1DeactivateClinicResponse": {
+      "type": "object"
+    },
+    "v1DeactivateDepartmentResponse": {
+      "type": "object"
+    },
+    "v1DeactivateEmployeeResponse": {
+      "type": "object"
+    },
     "v1DeactivateIncidentCategoryResponse": {
       "type": "object"
     },
     "v1DeactivateIncidentTypeResponse": {
       "type": "object"
     },
+    "v1DeactivateOrganizationResponse": {
+      "type": "object"
+    },
     "v1DeactivateRequestTypeResponse": {
+      "type": "object"
+    },
+    "v1DeleteClinicResponse": {
+      "type": "object"
+    },
+    "v1DeleteDepartmentResponse": {
       "type": "object"
     },
     "v1DeleteIncidentCategoryResponse": {
       "type": "object"
     },
     "v1DeleteIncidentTypeResponse": {
+      "type": "object"
+    },
+    "v1DeleteOrganizationResponse": {
       "type": "object"
     },
     "v1DeleteRequestTypeResponse": {
@@ -11200,6 +11878,9 @@
         },
         "description": {
           "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
         },
         "createdAt": {
           "type": "string"
@@ -11236,6 +11917,9 @@
         },
         "name": {
           "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
         }
       },
       "description": "DepartmentListItem is the minimal shape returned by list endpoints."
@@ -11498,6 +12182,14 @@
       "properties": {
         "isDepartmentResponsible": {
           "type": "boolean"
+        }
+      }
+    },
+    "v1GetMyEmployeeResponse": {
+      "type": "object",
+      "properties": {
+        "employee": {
+          "$ref": "#/definitions/v1EmployeeCardView"
         }
       }
     },
@@ -11851,54 +12543,12 @@
         "patientStatus": {
           "$ref": "#/definitions/v1PatientStatus",
           "description": "Populated only for patient callers."
+        },
+        "patientBuffer": {
+          "$ref": "#/definitions/v1PatientBufferInfo"
         }
       },
       "description": "IncidentView is the unified payload. For patients only id, status,\npatient_status, description and timestamps are populated."
-    },
-    "v1ListActiveRequestTypesByOrganizationResponse": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1RequestType"
-          }
-        },
-        "nextCursor": {
-          "type": "string"
-        }
-      }
-    },
-    "v1ListActiveRootCategoriesResponse": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Category"
-          }
-        },
-        "nextCursor": {
-          "type": "string"
-        }
-      }
-    },
-    "v1ListActiveTypesByOrganizationResponse": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/classifierV1Type"
-          }
-        },
-        "nextCursor": {
-          "type": "string"
-        }
-      }
     },
     "v1ListAnnouncementsForClinicResponse": {
       "type": "object",
@@ -12286,36 +12936,6 @@
         }
       }
     },
-    "v1ListPatientAllowedTypesByOrganizationResponse": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/classifierV1Type"
-          }
-        },
-        "nextCursor": {
-          "type": "string"
-        }
-      }
-    },
-    "v1ListPatientVisibleCategoriesByOrganizationResponse": {
-      "type": "object",
-      "properties": {
-        "items": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "$ref": "#/definitions/v1Category"
-          }
-        },
-        "nextCursor": {
-          "type": "string"
-        }
-      }
-    },
     "v1ListRequestTypesByOrganizationResponse": {
       "type": "object",
       "properties": {
@@ -12324,6 +12944,21 @@
           "items": {
             "type": "object",
             "$ref": "#/definitions/v1RequestType"
+          }
+        },
+        "nextCursor": {
+          "type": "string"
+        }
+      }
+    },
+    "v1ListRootCategoriesResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/v1Category"
           }
         },
         "nextCursor": {
@@ -12391,6 +13026,21 @@
         }
       }
     },
+    "v1ListTypesByOrganizationResponse": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/classifierV1Type"
+          }
+        },
+        "nextCursor": {
+          "type": "string"
+        }
+      }
+    },
     "v1ListVacationsByEmployeeResponse": {
       "type": "object",
       "properties": {
@@ -12427,6 +13077,9 @@
         "legalAddress": {
           "$ref": "#/definitions/queryOrgstructureV1Address"
         },
+        "isActive": {
+          "type": "boolean"
+        },
         "createdAt": {
           "type": "string"
         },
@@ -12444,6 +13097,9 @@
         },
         "name": {
           "type": "string"
+        },
+        "isActive": {
+          "type": "boolean"
         }
       },
       "description": "OrganizationListItem is the minimal shape returned by list endpoints."
@@ -12475,6 +13131,25 @@
           "format": "int64"
         }
       }
+    },
+    "v1PatientBufferInfo": {
+      "type": "object",
+      "properties": {
+        "bufferId": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "priority": {
+          "type": "string",
+          "title": "\"normal\" or \"high\""
+        }
+      },
+      "description": "PatientBufferInfo is embedded in IncidentView when the incident was\ncreated from a patient buffer submission."
     },
     "v1PatientBufferStatusBreakdown": {
       "type": "object",
@@ -12979,10 +13654,19 @@
         "occurredAt": {
           "type": "string",
           "title": "RFC3339Nano"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/definitions/v1BufferPriority"
         }
       },
       "required": [
-        "organizationId"
+        "organizationId",
+        "description",
+        "summary",
+        "priority"
       ]
     },
     "v1SubmitPatientIncidentResponse": {

@@ -119,9 +119,12 @@ public class AppealsProcessor(
                 cts.CancelAfter(SubmitTimeout);
                 var bufferId = await submissionClient.SubmitAsync(
                     submit.AccessToken,
-                    SubmitMapping.Description(nlpResult, submit.Text),
+                    SubmitMapping.Summary(nlpResult, submit.Text),
+                    SubmitMapping.Description(submit.Text),
+                    SubmitMapping.Priority(nlpResult),
                     SubmitMapping.CategoryId(nlpResult),
                     SubmitMapping.TypeId(nlpResult),
+                    SubmitMapping.OccurredAt(submit.CreatedAt),
                     cts.Token);
                 await repository.SetSubmittedAsync(appealId, bufferId, cts.Token);
             }
