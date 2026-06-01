@@ -11,8 +11,8 @@ from models import CategoryMatcher, ImportanceClassifier, TextProcessor
 #   - low-conf True  → seq2seq на OOD галлюцинирует, лучше не генерить
 #   - low-conf False → риск пропуска важной жалобы (в медицине цена FN > FP)
 # В обоих случаях помечаем как important и отправляем на ручной просмотр.
-# 0.70 — компромисс: 0.85 слишком агрессивен, 0.50 пропускает мусор.
-CONFIDENCE_THRESHOLD = 0.70
+# 0.60 — компромисс: 0.85 слишком агрессивен, 0.50 пропускает мусор.
+CONFIDENCE_THRESHOLD = 0.60
 
 
 def run_pipeline(
