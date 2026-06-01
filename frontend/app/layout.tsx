@@ -29,10 +29,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/shield.svg", type: "image/svg+xml" },
+      { url: "/icons/app-icon.svg", type: "image/svg+xml" },
       { url: "/favicon.ico", sizes: "any" },
     ],
-    apple: [{ url: "/icons/shield.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icons/app-icon.svg", type: "image/svg+xml" }],
   },
   formatDetection: {
     telephone: false,

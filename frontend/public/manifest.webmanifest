@@ -13,19 +13,19 @@
   "theme_color": "#000000",
   "icons": [
     {
-      "src": "/icons/shield.svg",
+      "src": "/icons/app-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icons/shield-maskable.svg",
+      "src": "/icons/app-icon-maskable.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
     },
     {
-      "src": "/icons/shield-monochrome.svg",
+      "src": "/icons/app-icon-monochrome.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "monochrome"

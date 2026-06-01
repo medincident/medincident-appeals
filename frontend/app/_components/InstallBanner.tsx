@@ -124,7 +124,7 @@ export function InstallBanner() {
     >
       <div className="flex items-start gap-3">
         <Image
-          src="/icons/shield.svg"
+          src="/icons/app-icon.svg"
           alt=""
           width={36}
           height={36}

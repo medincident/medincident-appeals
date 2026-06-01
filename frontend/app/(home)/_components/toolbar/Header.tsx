@@ -1,7 +1,6 @@
 "use client"
 
-import { Shield } from "lucide-react"
-
+import { MedIncidentLogo } from "@/components/icons/med-incident-logo"
 import { useProfileStore } from "@/lib/stores/profile.store"
 
 import { ProfilePopover } from "./ProfilePopover"
@@ -22,7 +21,7 @@ export function Header() {
     >
       <div className="mx-auto w-full max-w-xl flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <Shield fill="currentColor" className="h-7 w-7 text-primary shrink-0" />
+          <MedIncidentLogo className="h-7 w-7 shrink-0" />
           <div className="leading-tight">
             <p className="text-sm font-semibold text-primary">МедИнцидент</p>
             <p className="text-[11px] text-muted-foreground">Портал для обращений</p>
