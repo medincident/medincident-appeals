@@ -1,11 +1,13 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
-import { LogOut, User } from "lucide-react"
+import { LogOut, User, UserRoundCog } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Popover } from "@/components/ui/popover"
-import { logoutAction } from "@/services/auth/actions"
+import { LogoutConfirmDialog } from "./LogoutConfirmDialog"
+import { SwitchAccountConfirmDialog } from "./SwitchAccountConfirmDialog"
 
 interface ProfilePopoverProps {
   fullName: string | null
@@ -15,7 +17,11 @@ interface ProfilePopoverProps {
 }
 
 export function ProfilePopover({ fullName, initials, photoUrl, position }: ProfilePopoverProps) {
+  const [logoutOpen, setLogoutOpen] = useState(false)
+  const [switchOpen, setSwitchOpen] = useState(false)
+
   return (
+    <>
     <Popover
       placement="bottom-end"
       width="w-56"
@@ -64,18 +70,35 @@ export function ProfilePopover({ fullName, initials, photoUrl, position }: Profi
           </div>
 
           <div className="border-t border-border py-1">
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors"
-              >
-                <LogOut className="h-4 w-4" />
-                Выйти
-              </button>
-            </form>
+            <button
+              type="button"
+              onClick={() => {
+                close()
+                setSwitchOpen(true)
+              }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-popover-foreground hover:bg-muted/40 transition-colors"
+            >
+              <UserRoundCog className="h-4 w-4 text-muted-foreground" />
+              Сменить аккаунт
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                close()
+                setLogoutOpen(true)
+              }}
+              className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/5 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+              Выйти
+            </button>
           </div>
         </>
       )}
     </Popover>
+
+    <SwitchAccountConfirmDialog open={switchOpen} onOpenChange={setSwitchOpen} />
+    <LogoutConfirmDialog open={logoutOpen} onOpenChange={setLogoutOpen} />
+    </>
   )
 }
