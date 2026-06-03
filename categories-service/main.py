@@ -2,18 +2,9 @@
 Categories Service — публикует категории инцидентов в NATS JetStream KV.
 
 Режимы (CATEGORIES_USE_STUB):
-  true  — публикует зашитые моки (mock_categories.CATEGORIES), для dev без medincident-backend.
-  false — периодически тянет реальные категории из medincident-backend под
-          service-токеном (JWT-Bearer profile, machine key.json), собирает дерево
-          category→subcategories с фильтром isAllowedForPatients.
-
-Поведение:
-  1. Подключается к NATS (с ретраями), создаёт/открывает KV-bucket.
-  2. Каждые CATEGORIES_POLL_SECONDS берёт категории из источника и публикует
-     по ключу — только если содержимое изменилось (publish-if-changed).
-  3. На reconnect NATS пере-синхронизируется (volume KV мог быть пересоздан).
-
-AI-сервисы (nlp/llm) читают этот KV-ключ — контракт не меняется.
+  true  — зашитые моки (mock_categories.CATEGORIES), для dev без medincident-backend.
+  false — тянет реальные категории из medincident-backend под service-токеном
+          (JWT-Bearer profile, machine key.json), фильтр isAllowedForPatients.
 """
 
 from __future__ import annotations
@@ -57,7 +48,6 @@ async def _ensure_bucket(js: JetStreamContext):
 
 
 async def sync_once(nc: NATS) -> None:
-    """Берёт категории из источника и публикует в KV (publish-if-changed)."""
     try:
         categories = await source.get_categories()
     except Exception as exc:

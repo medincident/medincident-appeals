@@ -8,8 +8,3 @@ wheels/
 
 # Virtual environments
 .venv
-
-# Сгенерированный OpenAPI-клиент (создаётся scripts/generate_client.sh; swagger коммитим)
-generated/
-.cache/
-medincident.openapi.json

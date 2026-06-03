@@ -1,14 +1,6 @@
+import httpx
 import pytest
 
-from generated.backend.models.classifier_v1_type import ClassifierV1Type
-from generated.backend.models.v1_category import V1Category
-from generated.backend.models.v1_list_categories_by_organization_response import (
-    V1ListCategoriesByOrganizationResponse,
-)
-from generated.backend.models.v1_list_types_by_organization_response import (
-    V1ListTypesByOrganizationResponse,
-)
-from service import sources
 from service.sources import BackendCategorySource
 
 
@@ -18,43 +10,49 @@ class FakeTokenProvider:
 
 
 def _cat(cid, active=True):
-    return V1Category(id=cid, name=f"C-{cid}", description=f"d-{cid}", is_active=active)
+    return {"id": cid, "name": f"C-{cid}", "description": f"d-{cid}", "isActive": active}
 
 
 def _type(tid, cid, patient, active=True):
-    return ClassifierV1Type(
-        id=tid, category_id=cid, name=f"T-{tid}", description="td",
-        is_active=active, is_allowed_for_patients=patient,
-    )
+    return {
+        "id": tid,
+        "categoryId": cid,
+        "name": f"T-{tid}",
+        "description": "td",
+        "isActive": active,
+        "isAllowedForPatients": patient,
+    }
 
 
-def _patch_apis(monkeypatch, cat_pages, type_pages):
-    """cat_pages/type_pages — списки (items, next_cursor) по страницам."""
+def _make_transport(cat_pages, type_pages):
+    """cat_pages/type_pages — списки (items, next_cursor) по страницам.
+    Курсор None означает последнюю страницу."""
     cat_iter = iter(cat_pages)
     type_iter = iter(type_pages)
 
-    async def fake_cat_asyncio(*, organization_id, client, limit, after, **kwargs):
-        items, nxt = next(cat_iter)
-        return V1ListCategoriesByOrganizationResponse(items=items, next_cursor=nxt)
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("Authorization") == "Bearer tok"
+        if "incident-categories" in request.url.path:
+            items, nxt = next(cat_iter)
+        elif "incident-types" in request.url.path:
+            items, nxt = next(type_iter)
+        else:  # pragma: no cover
+            return httpx.Response(404)
+        body: dict = {"items": items}
+        if nxt:
+            body["nextCursor"] = nxt
+        return httpx.Response(200, json=body)
 
-    async def fake_type_asyncio(*, organization_id, client, limit, after, **kwargs):
-        items, nxt = next(type_iter)
-        return V1ListTypesByOrganizationResponse(items=items, next_cursor=nxt)
-
-    monkeypatch.setattr(sources.categories_api, "asyncio", fake_cat_asyncio)
-    monkeypatch.setattr(sources.types_api, "asyncio", fake_type_asyncio)
+    return httpx.MockTransport(handler)
 
 
 @pytest.mark.asyncio
-async def test_assembles_patient_tree(monkeypatch):
-    from generated.backend.types import UNSET
-
-    _patch_apis(
-        monkeypatch,
-        cat_pages=[([_cat("c1")], UNSET)],
-        type_pages=[([_type("t1", "c1", True), _type("t2", "c1", False)], UNSET)],
+async def test_assembles_patient_tree():
+    transport = _make_transport(
+        cat_pages=[([_cat("c1")], None)],
+        type_pages=[([_type("t1", "c1", True), _type("t2", "c1", False)], None)],
     )
-    src = BackendCategorySource("http://gw", "org-1", FakeTokenProvider())
+    src = BackendCategorySource("http://gw", "org-1", FakeTokenProvider(), transport=transport)
 
     tree = await src.get_categories()
 
@@ -65,15 +63,12 @@ async def test_assembles_patient_tree(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_follows_pagination(monkeypatch):
-    from generated.backend.types import UNSET
-
-    _patch_apis(
-        monkeypatch,
-        cat_pages=[([_cat("c1")], "cur1"), ([_cat("c2")], UNSET)],
-        type_pages=[([_type("t1", "c1", True), _type("t2", "c2", True)], UNSET)],
+async def test_follows_pagination():
+    transport = _make_transport(
+        cat_pages=[([_cat("c1")], "cur1"), ([_cat("c2")], None)],
+        type_pages=[([_type("t1", "c1", True), _type("t2", "c2", True)], None)],
     )
-    src = BackendCategorySource("http://gw", "org-1", FakeTokenProvider())
+    src = BackendCategorySource("http://gw", "org-1", FakeTokenProvider(), transport=transport)
 
     tree = await src.get_categories()
 
