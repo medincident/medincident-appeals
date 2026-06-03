@@ -26,17 +26,39 @@ OUTPUT_DIR = TRAINED_SEQ2SEQ_DIR
 
 
 def build_pairs(examples: list[Example]) -> tuple[list[str], list[str], list[str]]:
+    """Для каждого important строим до ДВУХ пар:
+      1) noisy (ex.text с дистракторами/преамбулами/опечатками) → formalized;
+      2) core_text (голое короткое ядро) → formalized.
+
+    Вторая пара лечит галлюцинации на коротких чистых входах ("Ночью упал с кровати
+    помогите" → "...с помощью помощи"): без неё модель видела почти только длинные
+    шумные тексты и на коротких входах копировала/выдумывала. clean-пара выравнивает
+    распределение входов между train и реальным использованием.
+    """
     inputs, targets, template_ids = [], [], []
+    n_clean = 0
     for ex in examples:
         if not ex.answer["is_important"]:
             continue
         formalized = ex.answer.get("formalized_text", "").strip()
-        if formalized:
-            inputs.append(f"формализуй: {ex.text}")
+        if not formalized:
+            continue
+        inputs.append(f"формализуй: {ex.text}")
+        targets.append(formalized)
+        template_ids.append(ex.template_id)
+
+        # clean-пара: голое ядро как короткий чистый вход (если есть и отличается)
+        core = (ex.core_text or "").strip()
+        if core and core != ex.text:
+            inputs.append(f"формализуй: {core}")
             targets.append(formalized)
             template_ids.append(ex.template_id)
+            n_clean += 1
 
-    logger.info("Built %d pairs (templates=%d)", len(inputs), len(set(template_ids)))
+    logger.info(
+        "Built %d pairs (templates=%d, из них clean-пар: %d)",
+        len(inputs), len(set(template_ids)), n_clean,
+    )
     return inputs, targets, template_ids
 
 

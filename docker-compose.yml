@@ -117,7 +117,7 @@ services:
       - "com.centurylinklabs.watchtower.scope=medincident-appeals"
     logging: *default-logging
 
-  # ── NLP Service (rubert-tiny2 + rut5 + MiniLM) ──────────────────────────────
+  # ── NLP Service (rubert-base-cased-conversational + rut5 + MiniLM) ──────────
   # поддерживает скейлинг `docker compose up --scale nlp-service=N`.
   nlp-service:
     profiles: [dev, prod]

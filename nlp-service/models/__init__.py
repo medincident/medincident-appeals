@@ -31,6 +31,7 @@ class Example(NamedTuple):
     text: str
     answer: dict
     template_id: str
+    core_text: str | None = None  # голое ядро жалобы (для seq2seq clean-пар), если есть в записи
 
 
 def _parse_example(raw: bytes, fallback_id: str) -> Example | None:
@@ -43,6 +44,7 @@ def _parse_example(raw: bytes, fallback_id: str) -> Example | None:
         text=msgs[0]["content"],
         answer=orjson.loads(msgs[1]["content"]),
         template_id=record.get("template_id", fallback_id),
+        core_text=record.get("core_text"),
     )
 
 

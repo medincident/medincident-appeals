@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fine-tune rubert-tiny2 на бинарную классификацию important/not_important."""
+"""Fine-tune rubert-base-cased-conversational на бинарную классификацию important/not_important."""
 
 import argparse
 import logging
@@ -195,15 +195,16 @@ def train(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fine-tune rubert importance classifier")
-    parser.add_argument("--epochs", type=int, default=3)
+    # base-модель (768 hidden, 12 слоёв) тяжёлая — 4 эпохи + patience=2, batch=16 под CPU.
+    parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--batch", type=int, default=32)
+    parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--max-len", type=int, default=256)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--test-ratio", type=float, default=0.15)
     parser.add_argument("--device", choices=["cpu", "cuda", "mps"], default=None)
     parser.add_argument("--label-smoothing", type=float, default=0.1)
-    parser.add_argument("--patience", type=int, default=1)
+    parser.add_argument("--patience", type=int, default=2)
     parser.add_argument("--torch-compile", action="store_true",
                         help="Включить torch.compile. Первая итерация дольше, дальше быстрее.")
     parser.add_argument("--resume", action="store_true",

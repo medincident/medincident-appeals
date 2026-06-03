@@ -5,7 +5,7 @@
     schema.py        — Template / Example dataclasses, валидация.
     augmenters.py    — аугментации (synonyms, QWERTY-typos, style, colloquial, multi).
     splitter.py      — детерминированный split train/val/test по template_id.
-    metrics.py       — distinct-n, TTR, self-BLEU для оценки разнообразия.
+    metrics.py       — distinct-n, TTR, intra-template Jaccard для оценки разнообразия.
     generator.py     — оркестрация.
     __main__.py      — CLI.
 """

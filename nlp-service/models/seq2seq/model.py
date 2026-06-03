@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import torch
 from transformers import T5ForConditionalGeneration, T5Tokenizer
@@ -13,6 +14,36 @@ from paths import CACHE_DIR, TRAINED_SEQ2SEQ_DIR
 logger = logging.getLogger(__name__)
 
 BASE_MODEL = "cointegrated/rut5-base-multitask"
+
+# Страховочный срез канцелярских зачинов на инференсе (на случай остаточных
+# штампов в выводе модели). Канонический нормализатор — dataset/normalize.py;
+# здесь автономная копия, чтобы сервис не зависел от пакета dataset в рантайме.
+_BOILERPLATE_OPENERS = [
+    r"зафиксирован[оаы]?",
+    r"зарегистрирован[оаы]?",
+    r"отмечен[оаы]?",
+    r"отмечается(?:,?\s*что)?(?:\s+у\s+пациент(?:а|ки))?",
+    r"выявлен[оаы]?",
+    r"установлен[оаы]?",
+    r"констатирован[оаы]?",
+    r"пациент(?:ка)?\s+подаёт\s+сигнал(?:\s+бедствия)?",
+    r"пациент(?:ка)?\s+сообщает(?:,?\s*что)?(?!\s+о\b|\s+об\b)",
+    r"пациент(?:ка)?\s+заявляет(?:,?\s*что)?(?!\s+о\b|\s+об\b)",
+    r"пациент(?:ка)?\s+обращается\s+с",
+]
+_BOILERPLATE_PAT = re.compile(r"^(?:%s)[\s:,]+" % "|".join(_BOILERPLATE_OPENERS), re.IGNORECASE)
+
+
+def _strip_boilerplate(text: str) -> str:
+    if not text:
+        return text
+    t = text.strip()
+    while True:
+        stripped = _BOILERPLATE_PAT.sub("", t).strip()
+        if not stripped or stripped == t:
+            break
+        t = stripped
+    return t[0].upper() + t[1:] if t else text
 
 
 class TextProcessor:
@@ -70,9 +101,13 @@ class TextProcessor:
                 num_beams=4,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
+                # repetition_penalty подавляет зацикливания вида "болит нога ... упала нога"
+                # и "с помощью помощи"; min_new_tokens не даёт обрезать слишком рано.
+                repetition_penalty=1.3,
+                min_new_tokens=6,
             )
 
         return self.tokenizer.decode(output_ids[0], skip_special_tokens=True).strip()
 
     def formalize(self, text: str) -> str:
-        return self._generate(f"формализуй: {text}", max_new_tokens=80)
+        return _strip_boilerplate(self._generate(f"формализуй: {text}", max_new_tokens=80))

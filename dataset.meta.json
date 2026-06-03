@@ -3,9 +3,9 @@
   "version": "v3",
   "seed": 42,
   "target": 3000,
-  "n_important_templates": 206,
-  "n_not_important_templates": 120,
-  "templates_hash": "5b760a698a0e4763",
+  "n_important_templates": 239,
+  "n_not_important_templates": 180,
+  "templates_hash": "e387814f9fb002f2",
   "aug_probs": {
     "synonyms": 0.4,
     "colloquial": 0.25,

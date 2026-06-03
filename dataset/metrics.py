@@ -1,15 +1,11 @@
-"""Метрики разнообразия датасета.
-
-Fix #14 — distinct-n, TTR, средний попарный Jaccard между вариациями шаблона.
-Без внешних зависимостей (sacrebleu/nltk); self-BLEU приближаем через Jaccard —
-для контроля «насколько не дублирующийся» дешёвой метрикой это достаточно.
+"""Метрики разнообразия датасета: distinct-n, TTR, средний попарный Jaccard
+между вариациями одного шаблона. Без внешних зависимостей (sacrebleu/nltk).
 """
 
 from __future__ import annotations
 
+import itertools
 import re
-from collections import Counter
-
 
 _TOKEN_RE = re.compile(r"[а-яёa-z0-9]+", re.IGNORECASE)
 
@@ -53,36 +49,18 @@ def _jaccard(a: list[str], b: list[str]) -> float:
     return len(sa & sb) / max(1, len(sa | sb))
 
 
-def mean_intra_template_jaccard(texts_by_template: dict[str, list[str]]) -> float:
+def mean_intra_template_jaccard(
+    texts_by_template: dict[str, list[str]], max_pairs: int = 10
+) -> float:
     """Средний Jaccard между вариациями одного шаблона.
-    Близко к 1.0 → вариации почти идентичны (плохо, датасет дублирующийся).
-    Близко к 0.5 → хорошее разнообразие.
+    ~1.0 → вариации почти идентичны (дублирующийся датасет), ~0.5 → хорошее разнообразие.
+    На каждый шаблон берём первые max_pairs пар (детерминированно, без O(n²)).
     """
     scores: list[float] = []
     for variants in texts_by_template.values():
-        if len(variants) < 2:
-            continue
-        # сэмплируем максимум 10 пар на шаблон — чтобы не O(n²)
-        pairs = min(10, len(variants) * (len(variants) - 1) // 2)
-        seen: set[tuple[int, int]] = set()
-        for _ in range(pairs):
-            i, j = 0, 1
-            # простой детерминированный проход — не нужна случайность
-            if pairs >= 10:
-                for ii in range(len(variants)):
-                    for jj in range(ii + 1, len(variants)):
-                        if (ii, jj) in seen:
-                            continue
-                        seen.add((ii, jj))
-                        i, j = ii, jj
-                        break
-                    else:
-                        continue
-                    break
+        for i, j in itertools.islice(itertools.combinations(range(len(variants)), 2), max_pairs):
             scores.append(_jaccard(tokenize(variants[i]), tokenize(variants[j])))
-    if not scores:
-        return 0.0
-    return sum(scores) / len(scores)
+    return sum(scores) / len(scores) if scores else 0.0
 
 
 def summarize(texts: list[str], texts_by_template: dict[str, list[str]]) -> dict[str, float]:

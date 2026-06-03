@@ -74,6 +74,19 @@ def run(limit: int | None = None) -> str:
     prec = precision_score(labels, preds, average="macro", zero_division=0)
     rec = recall_score(labels, preds, average="macro", zero_division=0)
 
+    # Per-class метрики по important — именно здесь видна основная проблема:
+    # низкий recall important = модель пропускает реальные жалобы/просьбы о помощи (FN).
+    prec_imp = precision_score(labels, preds, pos_label=1, zero_division=0)
+    rec_imp = recall_score(labels, preds, pos_label=1, zero_division=0)
+    prec_ni = precision_score(labels, preds, pos_label=0, zero_division=0)
+    rec_ni = recall_score(labels, preds, pos_label=0, zero_division=0)
+
+    # Confusion matrix (важность = positive class). FN — пропущенные важные обращения.
+    tp = sum(1 for y, p in zip(labels, preds) if y == 1 and p == 1)
+    fn = sum(1 for y, p in zip(labels, preds) if y == 1 and p == 0)
+    fp = sum(1 for y, p in zip(labels, preds) if y == 0 and p == 1)
+    tn = sum(1 for y, p in zip(labels, preds) if y == 0 and p == 0)
+
     disk_bytes = measure_model_disk_size(BASE_MODEL)
     mem = measure_process_memory()
 
@@ -88,12 +101,20 @@ def run(limit: int | None = None) -> str:
         "=" * 65,
         "",
         "--- 1. QUALITY ---",
-        f"  Test examples:    {len(test)}",
+        f"  Test examples:    {len(test)}  (imp={tp + fn}, not={tn + fp})",
         f"  Accuracy:         {acc:.4f}",
         f"  F1-macro:         {f1m:.4f}",
         f"  F1-binary (imp):  {f1b:.4f}",
         f"  Precision-macro:  {prec:.4f}",
         f"  Recall-macro:     {rec:.4f}",
+        "",
+        "  Per-class:",
+        f"    important:      precision={prec_imp:.4f}  recall={rec_imp:.4f}",
+        f"    not_important:  precision={prec_ni:.4f}  recall={rec_ni:.4f}",
+        "",
+        "  Confusion matrix (positive = important):",
+        f"    TP={tp:<5} FN={fn:<5}  <- FN = пропущенные важные обращения",
+        f"    FP={fp:<5} TN={tn:<5}",
         "",
         "--- 2. LATENCY (inference per example) ---",
         f"  Model load:       {t_load:.1f}s",

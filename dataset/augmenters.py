@@ -1,10 +1,6 @@
-"""Аугментации текста.
-
-Fix #1  — random.random() вместо combo_idx % N (настоящая рандомизация).
-Fix #5  — генеративные QWERTY-опечатки поверх фиксированного словаря.
-Fix #6  — STYLE_WRAPPERS применяется вместо PREAMBLE+SUFFIX, не поверх.
-Fix #7  — COLLOQUIAL_INSERTS вставляется в случайную позицию, не только в начало.
-Fix #8  — multi-complaint combiner (2 шаблона из одной категории в одном сообщении).
+"""Аугментации текста: синонимы, преамбулы/суффиксы, стилевые обёртки,
+разговорные вставки, опечатки (фиксированные + генеративные QWERTY), дистракторы,
+multi-complaint и повторяющийся спам.
 """
 
 from __future__ import annotations
@@ -262,7 +258,7 @@ COLLOQUIAL_INSERTS: list[str] = [
     "это самое", "как его", "как это", "щас",
 ]
 
-# ── Стилевые обёртки (заменяют PREAMBLE+SUFFIX, не складываются — fix #6) ────
+# ── Стилевые обёртки (заменяют PREAMBLE+SUFFIX, не складываются) ─────────────
 # (prefix, suffix) — применяются к ядру.
 # Разные стили: эмоциональный, официально-бюрократический, отчаянный,
 # покорный, саркастический, деловой, нарративный.
@@ -369,7 +365,7 @@ TYPO_REPLACEMENTS: list[tuple[str, str]] = [
     ("не могу", "немогу"), ("не было", "небыло"),
 ]
 
-# ── QWERTY-соседи для русской раскладки (fix #5) ─────────────────────────────
+# ── QWERTY-соседи для русской раскладки ──────────────────────────────────────
 # Для каждой буквы — физические соседи на клавиатуре (упрощённо).
 _QWERTY_NEIGHBORS: dict[str, str] = {
     "й": "цфы", "ц": "йукыв", "у": "цкеав", "к": "уеанп",
@@ -389,7 +385,7 @@ _QWERTY_NEIGHBORS: dict[str, str] = {
 # ───────────────────────────────────────────────────────────────────────────
 
 def apply_synonyms(text: str, rng: random.Random, p_word: float = 0.35) -> str:
-    """Fix #1: вероятностная замена синонима (вместо детерминированной)."""
+    """Вероятностная замена синонимов в тексте."""
     for word, syns in SYNONYMS.items():
         if word in text and rng.random() < p_word:
             text = text.replace(word, rng.choice(syns), 1)
@@ -397,7 +393,7 @@ def apply_synonyms(text: str, rng: random.Random, p_word: float = 0.35) -> str:
 
 
 def apply_colloquial(text: str, rng: random.Random) -> str:
-    """Fix #7: вставка в СЛУЧАЙНУЮ позицию между словами, а не в начало."""
+    """Вставка разговорного маркера в случайную позицию между словами."""
     tokens = text.split(" ")
     if len(tokens) < 3:
         # слишком коротко — вставляем в начало
@@ -408,8 +404,8 @@ def apply_colloquial(text: str, rng: random.Random) -> str:
 
 
 def apply_style(core: str, rng: random.Random) -> str:
-    """Fix #6: стиль применяется к ядру и ЗАМЕНЯЕТ обычные обёртки.
-    Вызывающий код не должен добавлять PREAMBLE/SUFFIX поверх."""
+    """Применяет стилевую обёртку к ядру вместо обычных PREAMBLE/SUFFIX
+    (вызывающий код не должен добавлять их поверх)."""
     prefix, suffix = rng.choice(STYLE_WRAPPERS)
     return prefix + core + suffix
 
@@ -442,9 +438,8 @@ def _typo_char(ch: str, rng: random.Random) -> str:
 
 
 def apply_qwerty_typos(text: str, rng: random.Random, p_char: float = 0.015) -> str:
-    """Fix #5: генеративные опечатки на уровне символов.
-    p_char — вероятность ошибки в одном символе. 0.015 ≈ 1-2 ошибки на 100 символов.
-    Работает только на кириллице; остальные символы не трогаем.
+    """Генеративные опечатки на уровне символов (только кириллица).
+    p_char — вероятность ошибки в символе. 0.015 ≈ 1-2 ошибки на 100 символов.
     """
     out: list[str] = []
     for ch in text:
@@ -467,17 +462,14 @@ def compose_user_text(
 ) -> tuple[str, str]:
     """Собирает финальный текст обращения из ядра.
 
-    Возвращает (noisy_text, clean_text) — чистая версия нужна для fix #18
-    (можно использовать как parallel corpus для SAGE-like спелл-коррекции).
-
-    Fix #6 — style и preamble/suffix взаимоисключающие.
+    Возвращает (noisy_text, clean_text); чистая версия (без опечаток) — parallel
+    corpus для спелл-коррекции. Стиль и preamble/suffix взаимоисключающие.
     """
     modified_core = core
     if use_synonyms:
         modified_core = apply_synonyms(modified_core, rng)
 
     if use_style:
-        # стиль вместо преамбулы/суффикса
         clean = apply_style(modified_core, rng)
     else:
         preamble = rng.choice(PREAMBLES)
@@ -579,7 +571,6 @@ def apply_distractors(
     distractor_templates = rng.sample(DISTRACTOR_INTROS, k=k)
     distractors = [_instantiate_distractor(t, rng) for t in distractor_templates]
 
-    # разбиваем по предложениям
     parts = [p.strip() for p in core.replace("!", ".").replace("?", ".").split(".") if p.strip()]
     if len(parts) < 2:
         # короткий core — раскладываем distractor'ы до и после
@@ -589,7 +580,6 @@ def apply_distractors(
         body = core.rstrip(". ") + "."
         return f"{before} {body} {after}".strip().replace("  ", " ")
 
-    # выбираем случайные slot-позиции для distractor'ов
     n_slots = len(parts) + 1
     positions = sorted(rng.choices(range(n_slots), k=len(distractors)))
 
@@ -608,8 +598,8 @@ def apply_distractors(
 
 
 def combine_multi(core_a: str, core_b: str, rng: random.Random) -> str:
-    """Fix #8: склеивает два ядра жалоб в одно сообщение.
-    Используется только для шаблонов из ОДНОЙ категории (чтобы метки не конфликтовали).
+    """Склеивает два ядра жалоб в одно сообщение (multi-complaint).
+    Только для шаблонов одной категории, чтобы метки не конфликтовали.
     """
     connectors = [
         ", а ещё ",
@@ -621,3 +611,34 @@ def combine_multi(core_a: str, core_b: str, rng: random.Random) -> str:
     ]
     connector = rng.choice(connectors)
     return core_a.rstrip(".!? ") + connector + core_b
+
+
+# ── Повторяющийся «спам» для not_important ───────────────────────────────────
+# Токены, повтор которых даёт ДЛИННЫЙ, но бессмысленный текст. Включают реальные
+# слова (привет/спасибо/ок), filler и тарабарщину — всё, что встречается в живых
+# «пустых» сообщениях.
+SPAM_TOKENS: list[str] = [
+    "привет", "спасибо", "ок", "окей", "хорошо", "да", "нет", "ага", "угу",
+    "ла", "бла", "тест", "проверка", "ыыыы", "фыв", "asdf", "qwerty",
+    "лалала", "хаха", "ну", "это", "ааа", "ой", "хм", "ладно",
+]
+
+
+def make_repetition_spam(rng: random.Random) -> str:
+    """Длинный малоинформативный текст — повтор одного токена N раз.
+
+    Закрывает утечку «длинное → важное» со стороны not_important: без таких
+    примеров любой длинный повтор ("привет привет привет ...") по мере роста длины
+    дрейфовал в important. Учит модель, что длина + низкое разнообразие = шум.
+    Длина варьируется (короткие и длинные), чтобы корреляция длины с классом
+    разрушалась на всём диапазоне.
+    """
+    token = rng.choice(SPAM_TOKENS)
+    n = rng.randint(6, 45)
+    sep = rng.choice([" ", " ", " ", ", "])
+    text = sep.join([token] * n).strip(", ")
+    if rng.random() < 0.5:
+        text = text[0].upper() + text[1:]
+    if rng.random() < 0.3:
+        text += rng.choice(["!", "...", "!!!", "?"])
+    return text

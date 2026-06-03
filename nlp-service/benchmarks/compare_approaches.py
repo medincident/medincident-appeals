@@ -3,7 +3,7 @@
 """
 compare_approaches.py — единый скрипт сравнения двух подходов обработки
 обращений на одном hold-out test set: специализированный NLP-пайплайн
-(rubert-tiny2 -> ruT5 -> MiniLM) против одной LLM (Qwen3-4B-GGUF, zero-shot).
+(rubert-base-cased-conversational -> ruT5 -> MiniLM) против одной LLM (Qwen3-4B-GGUF, zero-shot).
 
 ОДИН ФАЙЛ — ДВА ЗАПУСКА (из разных venv):
 

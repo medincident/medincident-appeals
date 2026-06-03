@@ -1,7 +1,4 @@
-"""CLI точка входа пакета: `python3 -m dataset_gen`.
-
-Использование также через shim: `python3 generate_dataset.py`.
-"""
+"""CLI пакета: `python3 -m dataset` (или shim `python3 generate_dataset.py`)."""
 
 from __future__ import annotations
 
@@ -23,12 +20,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--meta-output",
         type=str,
         default="dataset.meta.json",
-        help="Куда писать метаданные (fix #15).",
+        help="Куда писать метаданные.",
     )
     p.add_argument(
         "--important-ratio",
         type=float,
-        default=0.75,
+        default=0.60,
         help="Доля important-примеров.",
     )
     return p.parse_args(argv)
@@ -43,7 +40,6 @@ def _print_summary(
     important_n = sum(1 for e in examples if e.is_important)
     not_important_n = total - important_n
 
-    # по категориям
     cats: dict[str, int] = {}
     subs: dict[str, int] = {}
     for e in examples:
@@ -52,12 +48,10 @@ def _print_summary(
         if e.sub_id:
             subs[e.sub_id] = subs.get(e.sub_id, 0) + 1
 
-    # по split
     by_split = {SPLIT_TRAIN: 0, SPLIT_VAL: 0, SPLIT_TEST: 0}
     for e in examples:
         by_split[e.split] = by_split.get(e.split, 0) + 1
 
-    # метрики разнообразия (fix #14)
     user_texts = [e.user_text for e in examples]
     texts_by_template: dict[str, list[str]] = {}
     for e in examples:
@@ -125,7 +119,6 @@ def main(argv: list[str] | None = None) -> None:
         for ex in examples:
             f.write(ex.to_jsonl_line() + "\n")
 
-    # отдельный meta-файл для удобства
     Path(args.meta_output).write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

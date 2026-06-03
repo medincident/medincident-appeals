@@ -1,10 +1,4 @@
-"""Типы и валидация.
-
-Fix #11 — валидация выходного JSON.
-Fix #3  — formalized может быть списком парафраз.
-Fix #4  — для not_important formalized=None (не тренируем seq2seq на identity).
-Fix #15 — версионирование.
-"""
+"""Типы данных датасета (Template, Example) и их валидация."""
 
 from __future__ import annotations
 
@@ -18,12 +12,8 @@ DATASET_VERSION = "v3"
 class Template:
     """Шаблон жалобы.
 
-    Для important:
-        formalized — список парафразов (≥1 элемент).
-        Генератор ротирует их при создании вариаций — fix #3.
-
-    Для not_important:
-        category/subcategory = None, formalized = None.
+    Для important: formalized — список парафразов (≥1), генератор выбирает случайный.
+    Для not_important: category/subcategory = None, formalized = None.
     """
 
     core: str
@@ -62,11 +52,12 @@ class Example:
     cat_name: str | None
     sub_id: str | None
     sub_name: str | None
-    clean_text: str | None = None  # fix #18 — чистая версия до опечаток для SAGE-like задач
-    ambiguous: bool = False  # fix #10 — пограничный случай
+    clean_text: str | None = None  # версия без опечаток — parallel corpus для спелл-коррекции
+    core_text: str | None = None  # голое ядро жалобы (до преамбул/дистракторов) — для seq2seq clean-пар
+    ambiguous: bool = False  # пограничный случай
 
     def to_assistant_json(self) -> str:
-        """Fix #4: для not_important formalized=null (не identity)."""
+        """JSON ответа ассистента. Для not_important formalized=null."""
         obj = {
             "is_important": self.is_important,
             "reason": self.reason,
@@ -81,11 +72,9 @@ class Example:
         return json.dumps(obj, ensure_ascii=False)
 
     def to_jsonl_line(self) -> str:
-        """Fix #11: валидируем JSON сериализацией assistant-ответа.
-        Fix #12: включаем split прямо в запись.
-        """
+        """Одна строка JSONL. split включён в запись; assistant-JSON валидируется."""
         assistant_content = self.to_assistant_json()
-        json.loads(assistant_content)  # raises JSONDecodeError если что-то кривое
+        json.loads(assistant_content)  # упадёт на кривом JSON
 
         record = {
             "messages": [
@@ -97,6 +86,10 @@ class Example:
         }
         if self.clean_text is not None and self.clean_text != self.user_text:
             record["clean_text"] = self.clean_text
+        # core_text пишем только для important и только если он отличается от user_text —
+        # seq2seq использует его как короткий чистый вход (noisy+clean обучающие пары).
+        if self.core_text is not None and self.core_text != self.user_text:
+            record["core_text"] = self.core_text
         if self.ambiguous:
             record["ambiguous"] = True
         return json.dumps(record, ensure_ascii=False)
