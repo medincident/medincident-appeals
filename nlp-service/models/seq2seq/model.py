@@ -15,9 +15,6 @@ logger = logging.getLogger(__name__)
 
 BASE_MODEL = "cointegrated/rut5-base-multitask"
 
-# Страховочный срез канцелярских зачинов на инференсе (на случай остаточных
-# штампов в выводе модели). Канонический нормализатор — dataset/normalize.py;
-# здесь автономная копия, чтобы сервис не зависел от пакета dataset в рантайме.
 _BOILERPLATE_OPENERS = [
     r"зафиксирован[оаы]?",
     r"зарегистрирован[оаы]?",
@@ -31,7 +28,7 @@ _BOILERPLATE_OPENERS = [
     r"пациент(?:ка)?\s+заявляет(?:,?\s*что)?(?!\s+о\b|\s+об\b)",
     r"пациент(?:ка)?\s+обращается\s+с",
 ]
-_BOILERPLATE_PAT = re.compile(r"^(?:%s)[\s:,]+" % "|".join(_BOILERPLATE_OPENERS), re.IGNORECASE)
+_BOILERPLATE_PAT = re.compile(r"^(?:{})[\s:,]+".format("|".join(_BOILERPLATE_OPENERS)), re.IGNORECASE)
 
 
 def _strip_boilerplate(text: str) -> str:

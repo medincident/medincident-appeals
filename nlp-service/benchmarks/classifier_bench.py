@@ -82,10 +82,10 @@ def run(limit: int | None = None) -> str:
     rec_ni = recall_score(labels, preds, pos_label=0, zero_division=0)
 
     # Confusion matrix (важность = positive class). FN — пропущенные важные обращения.
-    tp = sum(1 for y, p in zip(labels, preds) if y == 1 and p == 1)
-    fn = sum(1 for y, p in zip(labels, preds) if y == 1 and p == 0)
-    fp = sum(1 for y, p in zip(labels, preds) if y == 0 and p == 1)
-    tn = sum(1 for y, p in zip(labels, preds) if y == 0 and p == 0)
+    tp = sum(1 for y, p in zip(labels, preds, strict=False) if y == 1 and p == 1)
+    fn = sum(1 for y, p in zip(labels, preds, strict=False) if y == 1 and p == 0)
+    fp = sum(1 for y, p in zip(labels, preds, strict=False) if y == 0 and p == 1)
+    tn = sum(1 for y, p in zip(labels, preds, strict=False) if y == 0 and p == 0)
 
     disk_bytes = measure_model_disk_size(BASE_MODEL)
     mem = measure_process_memory()

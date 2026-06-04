@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 compare_approaches.py — единый скрипт сравнения двух подходов обработки
 обращений на одном hold-out test set: специализированный NLP-пайплайн
@@ -36,6 +35,7 @@ nlp-service/models/__init__.py (split_by_templates).
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import logging
 import sys
@@ -230,13 +230,13 @@ def _binary_classification_metrics(y_true: list[int], y_pred: list[int]) -> dict
     n = len(y_true)
     if n == 0:
         return {"accuracy": 0.0, "f1_binary": 0.0, "f1_macro": 0.0}
-    correct = sum(1 for t, p in zip(y_true, y_pred) if t == p)
+    correct = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t == p)
     acc = correct / n
 
     def f1_for(positive: int) -> float:
-        tp = sum(1 for t, p in zip(y_true, y_pred) if t == positive and p == positive)
-        fp = sum(1 for t, p in zip(y_true, y_pred) if t != positive and p == positive)
-        fn = sum(1 for t, p in zip(y_true, y_pred) if t == positive and p != positive)
+        tp = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t == positive and p == positive)
+        fp = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t != positive and p == positive)
+        fn = sum(1 for t, p in zip(y_true, y_pred, strict=False) if t == positive and p != positive)
         if tp == 0:
             return 0.0
         prec = tp / (tp + fp) if (tp + fp) else 0.0
@@ -264,7 +264,7 @@ def quality_metrics(preds: list[dict], gold: list[dict]) -> dict:
     rouge1 = rouge2 = rougeL = 0.0
     rouge_total = 0
 
-    for p, g in zip(preds, gold):
+    for p, g in zip(preds, gold, strict=False):
         if not g["is_important"]:
             continue
         if g.get("category_id"):
@@ -316,7 +316,7 @@ def log_progress(tag: str, done: int, total: int, step: int, steps: int = 10) ->
 
 def process_rss_mb() -> float:
     try:
-        import os, resource
+        import resource
         rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         # На Linux ru_maxrss в KB, на macOS — в байтах
         if sys.platform == "darwin":
@@ -359,9 +359,13 @@ def run_nlp(test: list[dict], categories: list[dict], warmup: int, baseline: boo
 
     logger.info("NLP: загрузка моделей...")
     t0 = time.perf_counter()
-    clf = ImportanceClassifier(); clf.load()
-    s2s = TextProcessor(); s2s.load()
-    cm = CategoryMatcher(); cm.load(); cm.update_categories(categories)
+    clf = ImportanceClassifier()
+    clf.load()
+    s2s = TextProcessor()
+    s2s.load()
+    cm = CategoryMatcher()
+    cm.load()
+    cm.update_categories(categories)
     load_time = time.perf_counter() - t0
 
     if not clf.is_finetuned:
@@ -518,10 +522,8 @@ def run_llm(test: list[dict], categories: list[dict], warmup: int, device: str) 
         warm_marks = progress_steps(warm_n)
         step = 0
         for i in range(warm_n):
-            try:
+            with contextlib.suppress(Exception):
                 asyncio.run(analyze_one(test[i]["text"]))
-            except Exception:
-                pass
             if (i + 1) in warm_marks:
                 step += 1
                 log_progress("LLM warmup", i + 1, warm_n, step)
