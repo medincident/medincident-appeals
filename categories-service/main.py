@@ -10,6 +10,7 @@ Categories Service — публикует категории инциденто�
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 import sys
@@ -67,7 +68,7 @@ async def connect_and_sync() -> NATS:
     async def reconnected_cb():
         logger.info("NATS reconnected — re-syncing categories")
         try:
-            await sync_once(nc)  # noqa: F821 — nc замкнут после connect ниже
+            await sync_once(nc)
         except Exception as exc:
             logger.error("Re-sync after reconnect failed: %s", exc)
 
@@ -102,10 +103,8 @@ async def connect_and_sync() -> NATS:
 
 async def poll_loop(nc: NATS, stop: asyncio.Event) -> None:
     while not stop.is_set():
-        try:
+        with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(stop.wait(), timeout=cfg.poll_seconds)
-        except asyncio.TimeoutError:
-            pass
         if stop.is_set():
             break
         await sync_once(nc)
@@ -133,10 +132,8 @@ async def main() -> None:
 
     logger.info("Shutdown signal received")
     poller.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await poller
-    except asyncio.CancelledError:
-        pass
     await nc.drain()
     logger.info("Done.")
 

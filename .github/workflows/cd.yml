@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [backend, frontend, nlp-service, llm-service]
+        service: [backend, frontend, nlp-service, llm-service, stt-service, categories-service]
         include:
           - service: backend
             context: ./backend
@@ -52,6 +52,12 @@ jobs:
           - service: nlp-service
             context: ./nlp-service
             file: ./nlp-service/Dockerfile
+          - service: stt-service
+            context: ./stt-service
+            file: ./stt-service/Dockerfile
+          - service: categories-service
+            context: ./categories-service
+            file: ./categories-service/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:

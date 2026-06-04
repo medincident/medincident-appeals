@@ -10,6 +10,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUFF_VERSION: "0.15.15"
+
 jobs:
   backend:
     name: Backend
@@ -64,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv tool run ruff check .
+      - run: uv tool run ruff@${{ env.RUFF_VERSION }} check .
 
   nlp-service:
     name: NLP Service
@@ -75,4 +78,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - run: uv tool run ruff check .
+      - run: uv tool run ruff@${{ env.RUFF_VERSION }} check .
+
+  stt-service:
+    name: STT Service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./stt-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv tool run ruff@${{ env.RUFF_VERSION }} check .
+
+  categories-service:
+    name: Categories Service
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./categories-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv tool run ruff@${{ env.RUFF_VERSION }} check .
