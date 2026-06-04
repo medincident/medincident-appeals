@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import type { Appeal, AppealStatus } from "@/domain/appeals/types"
 import { cn } from "@/lib/utils"
-import { timeAgo } from "@/lib/time"
+import { formatDateTime, timeAgo } from "@/lib/time"
 
 const STATUS_CONFIG: Record<
   AppealStatus,
@@ -49,6 +49,9 @@ function AiInfoBlock({ appeal }: { appeal: Appeal }) {
         <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
           Предварительный анализ
         </span>
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          (Пациент не видит)
+        </div>
         <span className="text-xs flex items-center gap-1.5 ml-auto">
           {appeal.isImportant ? (
             <>
@@ -112,10 +115,13 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground leading-snug line-clamp-2">
+            <p className="text-sm font-medium text-foreground leading-snug truncate">
               {appeal.summary}
             </p>
-            <span className="block text-[11px] text-muted-foreground mt-1">
+            <span
+              className="inline-block text-[11px] text-muted-foreground mt-1 cursor-help"
+              title={formatDateTime(appeal.createdAt)}
+            >
               {timeAgo(appeal.createdAt)}
             </span>
           </div>
@@ -136,15 +142,17 @@ export function AppealCard({ appeal, expanded, highlighted, onToggle, cardRef }:
       </button>
 
       {expanded && (
-        <div className="border-t border-border px-4 py-4 animate-fade-in space-y-4">
-          <div className="text-xs">
-            <p className="font-medium text-foreground mb-1">Текст пациента:</p>
-            <p className="text-foreground leading-relaxed">{appeal.text}</p>
+        <div className="animate-fade-in">
+          <div className="px-4 pb-4">
+            <p className="text-xs text-foreground leading-relaxed">{appeal.text}</p>
           </div>
+
           {!IN_PROGRESS_STATUSES.has(appeal.status) && (
             <>
               <div className="h-px bg-border" />
-              <AiInfoBlock appeal={appeal} />
+              <div className="px-4 py-4">
+                <AiInfoBlock appeal={appeal} />
+              </div>
             </>
           )}
         </div>
